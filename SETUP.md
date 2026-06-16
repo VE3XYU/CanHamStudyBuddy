@@ -15,17 +15,21 @@ python3 -m http.server 8765 --directory docs
 
 ## 2. Deploy to GitHub Pages (free)
 
-1. Make sure the app is on your default branch (`main`). Merge your working
-   branch if needed.
-2. On GitHub: **Settings → Pages → Build and deployment**.
-3. **Source:** "Deploy from a branch". **Branch:** `main`, **Folder:** `/docs`.
-   Save.
-4. After a minute the site is live at
-   `https://<your-username>.github.io/CanHamStudyBuddy/`.
+This repo includes a GitHub Actions workflow (`.github/workflows/pages.yml`)
+that publishes `docs/` to GitHub Pages on every push to the working branch — no
+merge to `main` and no local build step needed.
 
-Your notes/scores/progress live in your browser (and your Firebase project if
-you enable sync), not in the repo, so it's fine for the site itself to be
-public — the question bank is public ISED material anyway.
+One-time setup on GitHub:
+
+1. **Make the repository public.** Pages on a *private* repo requires a paid
+   plan; on the Free plan the repo must be public. (**Settings → General →
+   Danger Zone → Change repository visibility → Public**.) Your notes/scores
+   live in your browser and your own Firebase project — never in the repo — and
+   the question bank is public ISED material, so nothing private is exposed.
+2. **Settings → Pages → Build and deployment → Source: "GitHub Actions".**
+3. Push any change to the branch (or re-run the latest run from the **Actions**
+   tab). When it finishes, the site is live at
+   `https://<your-username>.github.io/CanHamStudyBuddy/`.
 
 ## 3. Enable cross-device sync (optional)
 
@@ -61,8 +65,8 @@ This lets each account read/write only its own `users/{uid}` document.
 
 1. **Project settings → General → Your apps → Web app** (`</>`). Register an
    app; copy the `firebaseConfig` values.
-2. Copy `docs/firebase-config.example.js` to `docs/firebase-config.js` and fill
-   in your values. (`docs/firebase-config.js` is gitignored.)
+2. Copy `docs/js/firebase-config.example.js` to `docs/js/firebase-config.js`
+   and fill in your values. (`docs/js/firebase-config.js` is gitignored.)
 
 ### d. Authorize your domains for sign-in
 
