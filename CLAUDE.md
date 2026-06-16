@@ -4,51 +4,83 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repository is
 
-CanHamStudyBuddy is intended as a study aid for the Canadian amateur radio
-qualification exams. **It currently contains only source data — there is no
-application code, build system, test suite, linter, or dependency manifest
-yet.** Any of these will be introduced from scratch; do not assume a toolchain
-exists. There are no build/lint/test commands to run.
+A mobile-friendly, **static client-side** web app for studying the Canadian
+**Advanced** amateur radio qualification exam, built on the official ISED
+question bank. There is no server and no build/bundler step — the app in
+`docs/` is plain HTML/CSS/ES-modules deployed straight to GitHub Pages.
 
-The single data asset is the question bank for the **Advanced** qualification
-(`amat_adv_quest_delim.txt`). These are the official ISED (Innovation, Science
-and Economic Development Canada) exam questions, provided bilingually.
+Persistence is **local-first** (localStorage) with **optional** cloud sync via
+Firebase. The app must always work with sync absent or unconfigured.
 
-## Question bank format (`amat_adv_quest_delim.txt`)
+## Commands
 
-`readme_adv.txt` documents the schema. The file is semicolon-delimited with one
-question per line and a header row. Each record has **11 fields** in this fixed
-order:
+```bash
+# Regenerate the app dataset after editing the source question bank
+python3 scripts/build_questions.py
 
-1. `question_id`
-2. English question
-3. **Correct** English answer
-4–6. Incorrect English answers 1–3
-7. French question
-8. **Correct** French answer
-9–11. Incorrect French answers 1–3
+# Run the logic tests (dataset integrity, quiz building, stats, state merge)
+node scripts/selftest.mjs
 
-Critical details for anyone writing a parser (these are easy to get wrong):
+# Serve locally (ES modules require HTTP, not file://)
+python3 -m http.server 8765 --directory docs   # then http://localhost:8765
+```
 
-- **The correct answer is always field 3 (English) and field 8 (French).** The
-  data is not pre-shuffled — a quiz UI must randomize option order itself, or
-  every answer is trivially the first choice.
-- **The file uses CRLF (`\r\n`) line endings and is UTF-8** (French text has
-  accented characters). Strip the trailing `\r` and decode as UTF-8.
-- **The header's first field is `question_id ` with a trailing space.** Trim
-  header field names before matching.
-- All 549 data rows have exactly 11 fields — no answer text contains a `;`, so a
-  plain split on `;` is safe (no CSV quoting is used). Preserve this invariant if
-  you ever edit the data: a stray semicolon in answer text would silently break
-  field alignment.
+There is no linter/test-runner config; `node scripts/selftest.mjs` is the test
+suite. UI behaviour is covered ad hoc — the pure modules (`quiz.js`,
+`stats.js`, `store.js`'s `mergeStates`) are intentionally DOM-free so they can
+be unit-tested in Node.
 
-## Question ID taxonomy
+## Architecture
 
-IDs follow `A-SSS-BBB-QQQ`:
+**Data pipeline.** `amat_adv_quest_delim.txt` is the source of truth.
+`scripts/build_questions.py` parses it and emits `docs/js/data/questions.js`
+(an ES module exporting `QUESTIONS`, English fields only). The generated file
+is committed; regenerate it whenever the `.txt` changes — never hand-edit it.
 
-- `A` = Advanced qualification.
-- `SSS` = section (`001`–`007`).
-- `BBB` = sub-section within the section.
-- `QQQ` = question number within the sub-section.
+**State (`docs/js/store.js`).** The single source of truth at runtime. Holds
+`stats` (per-question attempts/correct/lastResult), `notes`, and `history`,
+persisted to localStorage under `canham_adv_state_v1`. All writes go through
+the store, which notifies subscribers. `mergeStates`/`mergeRemote` reconcile
+local and cloud copies with **last-write-wins per record** (by `lastSeenAt` /
+`updatedAt`); history is unioned by id.
 
-This hierarchy is the natural grouping for organizing study by topic.
+**Cloud sync (`docs/js/cloud.js`).** Optional, layered on top of the store.
+Dynamically imports `docs/js/firebase-config.js`; if it's missing or has no
+`apiKey`, the module reports `{ enabled: false }` and the app stays local-only.
+When signed in, it mirrors `store.getState()` to `users/{uid}` in Firestore and
+merges remote snapshots back via `store.mergeRemote`. Keep this strictly
+optional — never make core flows depend on it.
+
+**Pure logic.** `quiz.js` builds sessions (randomizes question order *and*
+answer-option order; filters by section and by mode: all/unseen/incorrect).
+`stats.js` aggregates the store's stats into overall and per-section numbers.
+Both take data as arguments and import no DOM/store — keep them that way.
+
+**UI (`docs/js/app.js`).** A small view-switching controller (no framework):
+`appState.view` selects a template, `render()` writes `#view.innerHTML`, and a
+single set of delegated `click`/`input`/`change`/`submit` listeners on
+`document` drives everything via `data-action` / `data-nav` / `data-setup`
+attributes. The active quiz session lives in `appState.session`, not the store.
+
+## Conventions and gotchas
+
+- **Always shuffle answer options.** In the source data the correct answer is
+  always the first option (field 3 EN / field 8 FR). `quiz.js` randomizes
+  positions; never render options in source order.
+- **Escape all dynamic text** with `escapeHTML` before inserting into HTML —
+  question/answer/note text contains `<`, `>`, `&`, and quotes.
+- **`docs/js/firebase-config.js` is gitignored** (copy from
+  `firebase-config.example.js`). Firebase web config is non-secret by design;
+  security is enforced by Auth + Firestore rules (see `SETUP.md`).
+- **English-only** today. The source bank is bilingual, so a French toggle is a
+  natural extension — the data is already there.
+
+## Source data format (`amat_adv_quest_delim.txt`)
+
+Documented in `readme_adv.txt`. Relevant when touching the build script:
+
+- UTF-8 with **CRLF** line endings; a header row whose first field name has a
+  **trailing space**.
+- 11 semicolon-delimited fields, **no quoting** (no field contains `;`, so a
+  plain split is safe — preserve this invariant if editing the data).
+- IDs are `A-SSS-BBB-QQQ`: Advanced, section (001–007), sub-section, question.
