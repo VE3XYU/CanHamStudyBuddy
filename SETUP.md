@@ -15,9 +15,8 @@ python3 -m http.server 8765 --directory docs
 
 ## 2. Deploy to GitHub Pages (free)
 
-This repo includes a GitHub Actions workflow (`.github/workflows/pages.yml`)
-that publishes `docs/` to GitHub Pages on every push to the working branch — no
-merge to `main` and no local build step needed.
+The app is served straight from the `docs/` folder — GitHub Pages can publish it
+directly from a branch, with no build step or workflow.
 
 One-time setup on GitHub:
 
@@ -26,10 +25,17 @@ One-time setup on GitHub:
    Danger Zone → Change repository visibility → Public**.) Your notes/scores
    live in your browser and your own Firebase project — never in the repo — and
    the question bank is public ISED material, so nothing private is exposed.
-2. **Settings → Pages → Build and deployment → Source: "GitHub Actions".**
-3. Push any change to the branch (or re-run the latest run from the **Actions**
-   tab). When it finishes, the site is live at
-   `https://<your-username>.github.io/CanHamStudyBuddy/`.
+2. **Settings → Pages → Build and deployment → Source: "Deploy from a branch".**
+   Pick the branch to publish (e.g. `claude/gifted-goldberg-y393p7` or `main`)
+   and folder **`/docs`**, then **Save**.
+3. Wait ~1 minute. The site goes live at
+   `https://<your-username>.github.io/CanHamStudyBuddy/`, and re-publishes
+   automatically whenever you push to that branch.
+
+> Why not the "GitHub Actions" Pages source? Its auto-created `github-pages`
+> environment only allows deployments from the repo's **default** branch, so an
+> Actions deploy from a feature branch is rejected before it runs. "Deploy from
+> a branch" has no such restriction.
 
 ## 3. Enable cross-device sync (optional)
 
