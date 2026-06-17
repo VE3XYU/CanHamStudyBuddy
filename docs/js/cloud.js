@@ -19,6 +19,9 @@ let unsubSnapshot = null;
 let unsubStore = null;
 let writeTimer = null;
 let applyingRemote = false;
+let wasSignedIn = false; // true once a user has signed in this session
+let currentRef = null; // Firestore doc ref for the signed-in user
+let lastPushOk = false; // did the most recent cloud write succeed?
 
 function set(patch) {
   cloud = { ...cloud, ...patch };
@@ -86,15 +89,29 @@ async function handleAuth(user) {
     unsubStore();
     unsubStore = null;
   }
+  // Cancel any debounced push so a stale timer can't overwrite the cloud
+  // (with possibly-empty state) after we tear down or clear local data below.
+  clearTimeout(writeTimer);
 
   if (!user) {
+    // A real sign-out (not the initial "no user" at page load) wipes this
+    // browser's local copy so nothing lingers for the next person. We only do
+    // this once we're confident the cloud already has the data (lastPushOk), so
+    // a denied/misconfigured sync can never cause local data loss. The cloud
+    // document is untouched and is restored on the next sign-in.
+    if (wasSignedIn && lastPushOk) store.resetAll();
+    wasSignedIn = false;
+    currentRef = null;
+    lastPushOk = false;
     set({ signedIn: false, email: null });
     return;
   }
+  wasSignedIn = true;
   set({ signedIn: true, email: user.email, error: null });
 
   const { fs, db } = fb;
   const ref = fs.doc(db, "users", user.uid);
+  currentRef = ref;
 
   try {
     const snap = await fs.getDoc(ref);
@@ -119,12 +136,16 @@ async function handleAuth(user) {
 }
 
 async function pushNow(ref) {
-  if (!fb) return;
+  if (!fb) return false;
   try {
     // setDoc replaces the doc with the merged local state (small payload).
     await fb.fs.setDoc(ref, JSON.parse(JSON.stringify(store.getState())));
+    lastPushOk = true;
+    return true;
   } catch (e) {
+    lastPushOk = false;
     set({ error: String(e && e.message ? e.message : e) });
+    return false;
   }
 }
 
@@ -136,6 +157,18 @@ export async function signUp(email, password) {
   await fb.auth.createUserWithEmailAndPassword(fb.authInst, email.trim(), password);
 }
 
+// Flush any pending local changes to the cloud while still authenticated, so
+// the post-sign-out local wipe can't drop the last edits.
+async function flush() {
+  clearTimeout(writeTimer);
+  if (cloud.signedIn && currentRef) await pushNow(currentRef);
+}
+
 export async function signOutUser() {
+  try {
+    await flush();
+  } catch (_) {
+    /* don't block sign-out on a final sync */
+  }
   await fb.auth.signOut(fb.authInst);
 }

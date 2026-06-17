@@ -105,7 +105,8 @@ local testing.
 Reload the app, open the **Sync** tab, and **Sign in** with the email/password
 you created in the console (sign-up is disabled, so there's no "Create account"
 step). Sign in the same way on each device — notes, scores, and progress merge
-and stay in sync automatically.
+and stay in sync automatically. Signing out clears this browser's local copy
+(your data stays in the cloud and returns when you sign back in).
 
 ## 4. Regenerating the question data
 

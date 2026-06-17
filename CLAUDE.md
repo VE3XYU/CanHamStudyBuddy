@@ -48,8 +48,10 @@ local and cloud copies with **last-write-wins per record** (by `lastSeenAt` /
 Dynamically imports `docs/js/firebase-config.js`; if it's missing or has no
 `apiKey`, the module reports `{ enabled: false }` and the app stays local-only.
 When signed in, it mirrors `store.getState()` to `users/{uid}` in Firestore and
-merges remote snapshots back via `store.mergeRemote`. Keep this strictly
-optional — never make core flows depend on it.
+merges remote snapshots back via `store.mergeRemote`. On sign-out it clears
+local state (only after a confirmed cloud write) so a shared browser can't leak
+the previous user's data; the cloud copy is restored on next sign-in. Keep this
+strictly optional — never make core flows depend on it.
 
 **Pure logic.** `quiz.js` builds sessions (randomizes question order *and*
 answer-option order; filters by section and by mode: all/unseen/incorrect).
