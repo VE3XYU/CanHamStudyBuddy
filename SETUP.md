@@ -45,10 +45,17 @@ code; security comes from Auth + the Firestore rules below.
 
 ### a. Create the Firebase project
 
-1. Go to <https://console.firebase.google.com> → **Add project**.
-2. In the project, **Build → Authentication → Get started → Sign-in method →
-   Email/Password → Enable**.
-3. **Build → Firestore Database → Create database** (Production mode is fine).
+Console links use `_` for "your current project". Order doesn't matter —
+Authentication and Firestore are independent products.
+
+1. <https://console.firebase.google.com> → **Add project**.
+2. **Authentication** (`/project/_/authentication`) → **Get started** →
+   **Email/Password** → Enable.
+3. Create your own login: **Authentication → Users → Add user** (email +
+   password). Then **Authentication → Settings → User actions** → uncheck
+   **Enable create (sign-up)** so nobody else can self-register.
+4. **Firestore Database** (`/project/_/firestore`) → **Create database** →
+   **Production mode** → choose a location.
 
 ### b. Lock Firestore to each signed-in user
 
@@ -58,21 +65,34 @@ In **Firestore → Rules**, paste and publish:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Only these signed-in emails may use the app at all.
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email in [
+             "you@example.com"
+           ];
+    }
+
+    // Each allowed user can read/write ONLY their own document.
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if allowed() && request.auth.uid == uid;
     }
   }
 }
 ```
 
-This lets each account read/write only its own `users/{uid}` document.
+Two independent gates: the email must be on the allowlist, and each account can
+touch only its own `users/{uid}` document. Add classmates' emails to the list
+when you open it up. Everything else is denied by default.
 
 ### c. Add your web config to the app
 
 1. **Project settings → General → Your apps → Web app** (`</>`). Register an
    app; copy the `firebaseConfig` values.
 2. Copy `docs/js/firebase-config.example.js` to `docs/js/firebase-config.js`
-   and fill in your values. (`docs/js/firebase-config.js` is gitignored.)
+   and fill in your values. This file **is committed** — the deployed Pages
+   site can only load files in the repo, and the web config is non-secret.
 
 ### d. Authorize your domains for sign-in
 
@@ -82,9 +102,10 @@ local testing.
 
 ### e. Use it
 
-Reload the app, open the **Sync** tab, and **Create account** (once), then
-**Sign in** on each device with the same email/password. Notes, scores, and
-progress merge and stay in sync automatically.
+Reload the app, open the **Sync** tab, and **Sign in** with the email/password
+you created in the console (sign-up is disabled, so there's no "Create account"
+step). Sign in the same way on each device — notes, scores, and progress merge
+and stay in sync automatically.
 
 ## 4. Regenerating the question data
 

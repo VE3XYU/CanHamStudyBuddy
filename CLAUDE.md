@@ -69,9 +69,10 @@ attributes. The active quiz session lives in `appState.session`, not the store.
   positions; never render options in source order.
 - **Escape all dynamic text** with `escapeHTML` before inserting into HTML —
   question/answer/note text contains `<`, `>`, `&`, and quotes.
-- **`docs/js/firebase-config.js` is gitignored** (copy from
-  `firebase-config.example.js`). Firebase web config is non-secret by design;
-  security is enforced by Auth + Firestore rules (see `SETUP.md`).
+- **`docs/js/firebase-config.js` is committed** — the deployed GitHub Pages site
+  can only load files in the repo (copy from `firebase-config.example.js` for a
+  new project). Firebase web config is non-secret by design; security is
+  enforced by Auth + Firestore rules (see `SETUP.md`).
 - **English-only** today. The source bank is bilingual, so a French toggle is a
   natural extension — the data is already there.
 

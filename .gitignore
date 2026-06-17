@@ -1,8 +1,3 @@
-# Personal Firebase web config (copy from firebase-config.example.js).
-# Not committed so your project's config stays out of git. Note: Firebase web
-# config is not secret, but this keeps your setup yours.
-docs/js/firebase-config.js
-
 # OS / editor noise
 .DS_Store
 *.swp
