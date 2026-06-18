@@ -362,11 +362,11 @@ function renderNotes() {
 function renderAccount() {
   const c = cloud.cloudState();
   if (!c.ready) {
-    return `<section class="stack"><h2 class="section-title">Sync</h2><p class="muted">Checking…</p></section>`;
+    return `<section class="stack"><h2 class="section-title">Login</h2><p class="muted">Checking…</p></section>`;
   }
   if (!c.enabled) {
     return `<section class="stack">
-      <h2 class="section-title">Sync</h2>
+      <h2 class="section-title">Login</h2>
       <div class="card stack">
         <p>Cloud sync isn't configured, so everything is saved on <strong>this device only</strong>.</p>
         <p class="muted small">To sync across devices, add your Firebase config (see <code>SETUP.md</code>) and reload.</p>
@@ -375,7 +375,7 @@ function renderAccount() {
   }
   if (c.signedIn) {
     return `<section class="stack">
-      <h2 class="section-title">Sync</h2>
+      <h2 class="section-title">Login</h2>
       <div class="card stack">
         <p>Signed in as <strong>${escapeHTML(c.email || "")}</strong>.</p>
         <p class="muted small">Your notes, scores, and progress sync across your devices automatically.</p>
@@ -384,7 +384,7 @@ function renderAccount() {
     </section>`;
   }
   return `<section class="stack">
-    <h2 class="section-title">Sync</h2>
+    <h2 class="section-title">Login</h2>
     <div class="card stack">
       <p class="muted small">Sign in to sync your study data across devices. Use the same account everywhere.</p>
       <form id="auth-form" class="stack">
@@ -550,6 +550,7 @@ function onClick(e) {
     case "study-notes": studyNotes(); break;
     case "signup": doAuth("signup"); break;
     case "signout": cloud.signOutUser(); break;
+    case "toggle-theme": toggleTheme(); break;
     default: break;
   }
 }
@@ -610,8 +611,36 @@ function afterRender(_view) {
   // would pop the mobile keyboard open and cover the Next button.
 }
 
+// --- theme ------------------------------------------------------------------
+const THEME_KEY = "canham_theme";
+
+function getTheme() {
+  try {
+    return localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
+  } catch (_) {
+    return "dark";
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", theme === "light" ? "#0b5fff" : "#3b82f6");
+}
+
+function toggleTheme() {
+  const next = getTheme() === "light" ? "dark" : "light";
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (_) {
+    /* ignore storage errors */
+  }
+  applyTheme(next);
+}
+
 // --- boot -------------------------------------------------------------------
 function boot() {
+  applyTheme(getTheme());
   document.addEventListener("click", onClick);
   document.addEventListener("input", onInput);
   document.addEventListener("change", onChange);
