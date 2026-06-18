@@ -1,4 +1,27 @@
 :root {
+  --radius: 14px;
+  --maxw: 640px;
+
+  /* Dark theme — the default. */
+  --blue: #3b82f6;
+  --blue-dark: #2563eb;
+  --bg: #0f1419;
+  --card: #1a212b;
+  --ink: #e6edf3;
+  --muted: #9aa4b2;
+  --line: #2b333f;
+  --good: #22c55e;
+  --ok: #f59e0b;
+  --low: #f87171;
+  --good-bg: #173a27;
+  --low-bg: #3a1f1f;
+  --field-bg: #11161d;
+  --code-bg: #232b35;
+  --shadow: 0 1px 3px rgba(0, 0, 0, .35), 0 1px 2px rgba(0, 0, 0, .25);
+}
+
+/* Light theme — opt in via the toggle (persisted as data-theme="light"). */
+:root[data-theme="light"] {
   --blue: #0b5fff;
   --blue-dark: #0848c4;
   --bg: #f3f4f6;
@@ -11,9 +34,9 @@
   --low: #dc2626;
   --good-bg: #dcfce7;
   --low-bg: #fee2e2;
-  --radius: 14px;
+  --field-bg: #ffffff;
+  --code-bg: #eef0f3;
   --shadow: 0 1px 3px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .04);
-  --maxw: 640px;
 }
 
 * { box-sizing: border-box; }
@@ -70,6 +93,30 @@ body {
 .chip-good { background: var(--good); }
 .chip-warn { background: var(--ok); }
 
+.appbar-right { display: flex; align-items: center; gap: 10px; }
+.iconbtn {
+  appearance: none;
+  border: 0;
+  background: rgba(255, 255, 255, .18);
+  color: #fff;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+}
+.iconbtn:active { filter: brightness(.9); }
+.iconbtn svg { width: 19px; height: 19px; }
+.ic-sun { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.ic-moon { fill: currentColor; stroke: none; }
+/* Default (dark) shows the sun (tap → light); light theme shows the moon. */
+.ic-moon { display: none; }
+:root[data-theme="light"] .ic-sun { display: none; }
+:root[data-theme="light"] .ic-moon { display: inline; }
+
 /* ---- layout ---- */
 .container { max-width: var(--maxw); margin: 0 auto; padding: 16px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
@@ -89,7 +136,7 @@ body {
 .empty { color: var(--muted); text-align: center; padding: 18px; }
 .error { color: var(--low); font-size: .88rem; margin: 0; }
 .link { background: none; border: 0; color: var(--blue); font-size: .9rem; padding: 6px 0; cursor: pointer; }
-code { background: #eef0f3; padding: 1px 5px; border-radius: 5px; font-size: .85em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; font-size: .85em; }
 
 /* ---- hero / stats ---- */
 .hero { text-align: center; }
@@ -147,7 +194,7 @@ code { background: #eef0f3; padding: 1px 5px; border-radius: 5px; font-size: .85
   padding: 11px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #fff;
+  background: var(--field-bg);
   width: 100%;
 }
 .field textarea { resize: vertical; line-height: 1.4; }
