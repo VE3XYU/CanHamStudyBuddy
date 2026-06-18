@@ -1,17 +1,15 @@
-// Display names for each exam section.
-//
-// The source question bank only numbers sections (A-001 … A-007); it does not
-// include topic titles. These labels are display-only — rename them to match
-// the ISED Advanced syllabus topics however you like. Section numbers and the
-// questions in them come from the data, not from here.
+// Display names for each exam section — the official ISED Advanced qualification
+// syllabus section titles. The source question bank only numbers sections
+// (A-001 … A-007) with no titles, so they're kept here; these are display-only
+// and the questions themselves come from the data.
 export const SECTION_TITLES = {
-  1: "Section 1",
-  2: "Section 2",
-  3: "Section 3",
-  4: "Section 4",
-  5: "Section 5",
-  6: "Section 6",
-  7: "Section 7",
+  1: "Advanced Theory",
+  2: "Advanced Components and Circuits",
+  3: "Measurements",
+  4: "Power Supplies",
+  5: "Transmitters, Modulation and Processing",
+  6: "Receivers",
+  7: "Feedlines - Matching and Antenna Systems",
 };
 
 export function sectionLabel(n) {
