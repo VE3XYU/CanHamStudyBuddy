@@ -13,7 +13,8 @@ export const SECTION_TITLES = {
 };
 
 export function sectionLabel(n) {
-  return SECTION_TITLES[n] || `Section ${n}`;
+  const title = SECTION_TITLES[n];
+  return title ? `${n}. ${title}` : `Section ${n}`;
 }
 
 // The original ID prefix for a section, e.g. 1 -> "A-001".
