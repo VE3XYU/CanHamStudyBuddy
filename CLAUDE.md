@@ -18,6 +18,9 @@ Firebase. The app must always work with sync absent or unconfigured.
 # Regenerate the app dataset after editing the source question bank
 python3 scripts/build_questions.py
 
+# Regenerate per-question explainers after editing explanations/section-*.json
+python3 scripts/build_explanations.py
+
 # Run the logic tests (dataset integrity, quiz building, stats, state merge)
 node scripts/selftest.mjs
 
@@ -36,6 +39,17 @@ be unit-tested in Node.
 `scripts/build_questions.py` parses it and emits `docs/js/data/questions.js`
 (an ES module exporting `QUESTIONS`, English fields only). The generated file
 is committed; regenerate it whenever the `.txt` changes — never hand-edit it.
+
+**Explainers (`explanations/section-*.json` → `docs/js/data/explanations.js`).**
+Short, AI-generated study notes shown *after* the user answers, in addition to
+their own note (see `explanationBlock` in `app.js`, used in the quiz, results,
+and notes views). Authored by hand as one JSON file per exam section (`{ qid:
+text }`), merged by `scripts/build_explanations.py` into a generated ES module
+exporting `EXPLANATIONS` and `EXPLANATIONS_DISCLAIMER`. Like `questions.js` the
+generated module is committed and must not be hand-edited — edit the section
+JSON and rebuild. Coverage is partial-friendly (questions without an explainer
+just don't show one), so they can be authored section by section. Every shown
+explainer carries the AI-generated disclaimer; keep it.
 
 **State (`docs/js/store.js`).** The single source of truth at runtime. Holds
 `stats` (per-question attempts/correct/lastResult), `notes`, and `history`,

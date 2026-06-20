@@ -2,6 +2,7 @@
 // Data lives in store.js (local-first) and optionally syncs via cloud.js.
 
 import { QUESTIONS } from "./data/questions.js";
+import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "./data/explanations.js";
 import { sectionLabel, sectionCode } from "./data/sections.js";
 import * as store from "./store.js";
 import * as cloud from "./cloud.js";
@@ -89,6 +90,20 @@ function accuracyKind(p) {
   if (p >= 80) return "good";
   if (p >= 60) return "ok";
   return "low";
+}
+
+// A short, AI-generated study explainer for a question, shown after answering
+// (alongside the user's own note). Returns "" when no explainer exists yet, so
+// it's safe to drop into any view. The AI-generated disclaimer travels with it.
+function explanationBlock(id) {
+  const text = EXPLANATIONS[id];
+  if (!text) return "";
+  return `
+    <div class="explain">
+      <div class="explain-head">Explanation</div>
+      <p class="explain-body">${escapeHTML(text)}</p>
+      <p class="explain-note">${escapeHTML(EXPLANATIONS_DISCLAIMER)}</p>
+    </div>`;
 }
 
 // --- dashboard --------------------------------------------------------------
@@ -231,6 +246,7 @@ function renderQuiz() {
     const isLast = s.idx + 1 >= total;
     feedback = `
       ${verdict}
+      ${explanationBlock(item.id)}
       <div class="note-block">
         <label class="field">
           <span>Your note for this question <span class="saved" data-saved-for="${escapeHTML(item.id)}"></span></span>
@@ -273,6 +289,7 @@ function renderResults() {
           <div class="muted small">${escapeHTML(it.id)}</div>
           <div class="review-q">${escapeHTML(it.question)}</div>
           <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(it.correct)}</div>
+          ${explanationBlock(it.id)}
           ${note ? `<div class="review-note"><span class="tag">Note</span> ${escapeHTML(note)}</div>` : ""}
         </div>`;
       }).join("")}
@@ -346,7 +363,8 @@ function renderNotes() {
     return `<div class="card stack">
       <div class="muted small">${escapeHTML(id)}${q ? " · " + escapeHTML(sectionLabel(q.section)) : ""}</div>
       ${q ? `<div class="review-q">${escapeHTML(q.q)}</div>
-        <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(q.correct)}</div>` : ""}
+        <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(q.correct)}</div>
+        ${explanationBlock(id)}` : ""}
       <label class="field">
         <span>Note <span class="saved" data-saved-for="${escapeHTML(id)}"></span></span>
         <textarea data-note-qid="${escapeHTML(id)}" rows="3">${escapeHTML(notes[id].text)}</textarea>

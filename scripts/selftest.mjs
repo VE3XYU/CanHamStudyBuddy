@@ -3,6 +3,7 @@
 import assert from "node:assert/strict";
 
 import { QUESTIONS } from "../docs/js/data/questions.js";
+import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "../docs/js/data/explanations.js";
 import { buildQuiz, eligible, buildFromQuestions } from "../docs/js/quiz.js";
 import { computeOverall, computeBySection } from "../docs/js/stats.js";
 import { stableStringify } from "../docs/js/util.js";
@@ -27,6 +28,33 @@ check("every question has 4 distinct options and required fields", () => {
     assert.equal(opts.size, 4, `duplicate options on ${q.id}`);
     assert.ok(q.section >= 1 && q.section <= 7, `bad section on ${q.id}`);
   }
+});
+
+// --- explainers -------------------------------------------------------------
+check("explainers reference only real questions and are non-empty", () => {
+  const ids = new Set(QUESTIONS.map((q) => q.id));
+  const keys = Object.keys(EXPLANATIONS);
+  assert.ok(keys.length > 0, "no explainers loaded");
+  for (const [id, text] of Object.entries(EXPLANATIONS)) {
+    assert.ok(ids.has(id), `explainer for unknown question ${id}`);
+    assert.equal(typeof text, "string");
+    assert.ok(text.trim().length > 0, `empty explainer for ${id}`);
+  }
+  const covered = keys.length;
+  console.log(`      (${covered}/${QUESTIONS.length} questions have an explainer)`);
+});
+
+check("explainers stay concise", () => {
+  // Length proxy for the "at most ~5 sentences" guideline — a runaway entry
+  // (e.g. a duplicated paragraph) trips this well before it reaches the user.
+  for (const [id, text] of Object.entries(EXPLANATIONS)) {
+    assert.ok(text.length <= 800, `explainer for ${id} is too long (${text.length} chars)`);
+  }
+});
+
+check("the AI-generated disclaimer is present", () => {
+  assert.equal(typeof EXPLANATIONS_DISCLAIMER, "string");
+  assert.ok(/AI-generated/i.test(EXPLANATIONS_DISCLAIMER), "disclaimer should mention it's AI-generated");
 });
 
 // --- quiz construction ------------------------------------------------------

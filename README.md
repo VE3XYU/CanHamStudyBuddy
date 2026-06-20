@@ -9,6 +9,9 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
 - **Study by section** or across the whole bank.
 - **Randomized** question order *and* answer-option order on every quiz.
 - **Three modes:** all questions, only-unseen, or review-my-mistakes.
+- **Per-question explainers** shown after you answer — a short note on how the
+  calculation is done or why the tricky distractors are wrong (AI-generated, so
+  flagged as such alongside your own notes).
 - **Per-question notes** you add after answering — they reappear automatically
   the next time that question comes up, and collect in a Notes tab.
 - **Scores & progress:** coverage and accuracy overall and per section, plus a
@@ -38,6 +41,9 @@ To put it on your phone, deploy free to **GitHub Pages** (`main` branch,
   bilingual). The canonical data; see `readme_adv.txt` for its format.
 - `scripts/build_questions.py` — generates `docs/js/data/questions.js` from the
   source bank. Rerun it after editing the `.txt`.
+- `explanations/section-*.json` — hand-authored, AI-generated per-question
+  explainers (one file per exam section). `scripts/build_explanations.py`
+  merges them into `docs/js/data/explanations.js`. Rerun it after editing them.
 - `docs/` — the app (deploy this folder):
   - `js/store.js` — local-first state (stats, notes, history) in localStorage.
   - `js/cloud.js` — optional Firebase sync layered on top.

@@ -235,6 +235,27 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; font-si
 .verdict.bad { color: var(--low); background: var(--low-bg); }
 .note-block { margin-top: 2px; }
 
+/* ---- explainer (AI-generated, shown after answering) ---- */
+.explain {
+  background: var(--field-bg);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.explain-head {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--blue);
+  margin-bottom: 4px;
+}
+.explain-body { margin: 0; font-size: .92rem; line-height: 1.5; }
+.explain-note { margin: 8px 0 0; font-size: .72rem; font-style: italic; color: var(--muted); }
+/* Tighter when nested in review/notes cards. */
+.review .explain, .card .explain { margin-top: 2px; }
+
 /* ---- review / notes ---- */
 .review-q { font-weight: 600; }
 .review-a, .review-note { font-size: .92rem; }
