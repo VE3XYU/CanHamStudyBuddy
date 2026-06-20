@@ -35,3 +35,18 @@ export function uid() {
 export function clamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
+
+// Deterministic JSON: object keys are sorted recursively so two structurally
+// equal values serialize identically. Used for change detection (e.g. deciding
+// whether a merge actually altered state), not for persistence. Array order is
+// preserved. Only ever reduces false "changed" results — a genuine content
+// difference always produces a different string.
+export function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const body = Object.keys(value)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+    .join(",");
+  return `{${body}}`;
+}

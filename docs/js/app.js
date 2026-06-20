@@ -5,7 +5,7 @@ import { QUESTIONS } from "./data/questions.js";
 import { sectionLabel, sectionCode } from "./data/sections.js";
 import * as store from "./store.js";
 import * as cloud from "./cloud.js";
-import { buildQuiz, buildFromQuestions, MODES } from "./quiz.js";
+import { buildQuiz, buildFromQuestions, eligible, MODES } from "./quiz.js";
 import { computeOverall, computeBySection } from "./stats.js";
 import { escapeHTML, pct } from "./util.js";
 
@@ -30,10 +30,12 @@ const viewEl = () => document.getElementById("view");
 const navEl = () => document.getElementById("nav");
 const noteTimers = {};
 
-// Views that should re-render when underlying data changes (e.g. a cloud sync
-// merges in new progress). The notes view is excluded because it hosts live
-// editable textareas that re-rendering would interrupt.
-const AUTO_RERENDER = new Set(["dashboard", "stats", "account"]);
+// Views that should re-render when the store's data changes (e.g. a cloud sync
+// merges in new progress). Views hosting live <input>/<textarea> are excluded
+// so a re-render can't wipe in-progress typing: notes (note editors) and
+// account (the sign-in form). The account view shows no store-derived data
+// anyway — its sign-in/out transitions are driven by cloud.onCloud instead.
+const AUTO_RERENDER = new Set(["dashboard", "stats"]);
 
 // --- routing ----------------------------------------------------------------
 function navigate(view, patch = {}) {
@@ -156,7 +158,9 @@ function renderDashboard() {
 function renderSetup() {
   const { section, mode, length } = appState.setup;
   const stats = store.getState().stats;
-  const pool = buildQuiz(QUESTIONS, { section, mode, length: 0, stats }).items.length;
+  // Just need the count here — avoid building (and shuffling) a throwaway quiz
+  // on every filter change.
+  const pool = eligible(QUESTIONS, { section, mode, stats }).length;
 
   const sectionOpts = [
     `<option value="all" ${section === "all" ? "selected" : ""}>All sections (${QUESTIONS.length})</option>`,
@@ -229,8 +233,8 @@ function renderQuiz() {
       ${verdict}
       <div class="note-block">
         <label class="field">
-          <span>Your note for this question <span class="saved" data-saved-for="${item.id}"></span></span>
-          <textarea data-note-qid="${item.id}" rows="3"
+          <span>Your note for this question <span class="saved" data-saved-for="${escapeHTML(item.id)}"></span></span>
+          <textarea data-note-qid="${escapeHTML(item.id)}" rows="3"
             placeholder="Add a note — it'll show here whenever you answer this question again.">${note}</textarea>
         </label>
       </div>
@@ -248,7 +252,7 @@ function renderQuiz() {
         </div>
       </div>
       ${bar(progress)}
-      <div class="muted small ctx">${escapeHTML(sessionContext(s.quiz))} · ${item.id}</div>
+      <div class="muted small ctx">${escapeHTML(sessionContext(s.quiz))} · ${escapeHTML(item.id)}</div>
       <h2 class="question">${escapeHTML(item.question)}</h2>
       <div class="options">${options}</div>
       ${feedback}
@@ -266,7 +270,7 @@ function renderResults() {
       ${r.missed.map((it) => {
         const note = store.getNote(it.id);
         return `<div class="card review">
-          <div class="muted small">${it.id}</div>
+          <div class="muted small">${escapeHTML(it.id)}</div>
           <div class="review-q">${escapeHTML(it.question)}</div>
           <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(it.correct)}</div>
           ${note ? `<div class="review-note"><span class="tag">Note</span> ${escapeHTML(note)}</div>` : ""}
@@ -340,14 +344,14 @@ function renderNotes() {
   const items = ids.map((id) => {
     const q = QMAP.get(id);
     return `<div class="card stack">
-      <div class="muted small">${id}${q ? " · " + escapeHTML(sectionLabel(q.section)) : ""}</div>
+      <div class="muted small">${escapeHTML(id)}${q ? " · " + escapeHTML(sectionLabel(q.section)) : ""}</div>
       ${q ? `<div class="review-q">${escapeHTML(q.q)}</div>
         <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(q.correct)}</div>` : ""}
       <label class="field">
-        <span>Note <span class="saved" data-saved-for="${id}"></span></span>
-        <textarea data-note-qid="${id}" rows="3">${escapeHTML(notes[id].text)}</textarea>
+        <span>Note <span class="saved" data-saved-for="${escapeHTML(id)}"></span></span>
+        <textarea data-note-qid="${escapeHTML(id)}" rows="3">${escapeHTML(notes[id].text)}</textarea>
       </label>
-      <button class="btn btn-sm btn-ghost" data-action="del-note" data-qid="${id}">Delete note</button>
+      <button class="btn btn-sm btn-ghost" data-action="del-note" data-qid="${escapeHTML(id)}">Delete note</button>
     </div>`;
   }).join("");
 
@@ -449,19 +453,22 @@ function nextQuestion() {
   const s = appState.session;
   if (!s) return;
   saveCurrentNote();
-  if (s.idx + 1 >= s.quiz.items.length) return finishQuiz();
+  if (s.idx + 1 >= s.quiz.items.length) return finishQuiz({ completed: true });
   s.idx += 1;
   render();
 }
 
-function finishQuiz() {
+// `completed` is true only when the user answered through to the last question.
+// Exiting early still shows results (so you see how you did) but isn't logged as
+// a session, keeping the history limited to quizzes actually finished.
+function finishQuiz({ completed = false } = {}) {
   const s = appState.session;
   if (!s) return navigate("dashboard");
   saveCurrentNote();
   const total = s.answered;
   const correct = s.correct;
   const missed = s.quiz.items.filter((_, i) => s.answers[i] && !s.answers[i].correct);
-  if (total > 0) {
+  if (total > 0 && completed) {
     store.addHistory({
       startedAt: s.quiz.startedAt,
       finishedAt: Date.now(),
@@ -523,7 +530,10 @@ function friendlyAuthError(e) {
   if (code.includes("email-already-in-use")) return "That email already has an account — try signing in.";
   if (code.includes("weak-password")) return "Password should be at least 6 characters.";
   if (code.includes("invalid-email")) return "That doesn't look like a valid email.";
-  return (e && e.message) || "Something went wrong. Please try again.";
+  if (code.includes("network-request-failed")) return "Network error — check your connection and try again.";
+  if (code.includes("too-many-requests")) return "Too many attempts — please wait a moment and try again.";
+  // Don't surface raw SDK error text to the user; keep a generic fallback.
+  return "Something went wrong. Please try again.";
 }
 
 // --- event wiring -----------------------------------------------------------
