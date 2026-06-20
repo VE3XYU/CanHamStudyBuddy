@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { QUESTIONS } from "../docs/js/data/questions.js";
 import { buildQuiz, eligible, buildFromQuestions } from "../docs/js/quiz.js";
 import { computeOverall, computeBySection } from "../docs/js/stats.js";
+import { stableStringify } from "../docs/js/util.js";
 
 let passed = 0;
 function check(name, fn) {
@@ -120,6 +121,28 @@ check("mergeStates resolves notes and stats by last-write-wins", async () => {
   assert.equal(merged.stats.q1.attempts, 3, "newer stats win");
   assert.equal(merged.notes.q1.text, "new", "newer note wins");
   assert.equal(merged.history.length, 2, "history deduped by id");
+});
+
+check("stableStringify ignores key order but not content or array order", () => {
+  assert.equal(stableStringify({ a: 1, b: 2 }), stableStringify({ b: 2, a: 1 }));
+  assert.equal(stableStringify({ x: { p: 1, q: 2 } }), stableStringify({ x: { q: 2, p: 1 } }));
+  assert.notEqual(stableStringify({ a: 1 }), stableStringify({ a: 2 }));
+  assert.notEqual(stableStringify([1, 2]), stableStringify([2, 1]));
+});
+
+check("mergeRemote: identical remote is a no-op, real differences are detected", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  store.recordAnswer(qid, true);
+  store.setNote(qid, "hello");
+
+  const remote = JSON.parse(JSON.stringify(store.getState()));
+  assert.equal(store.mergeRemote(remote), false, "same content should not count as a change");
+
+  remote.notes[qid] = { text: "changed", updatedAt: Date.now() + 1000 };
+  assert.equal(store.mergeRemote(remote), true, "a newer note should be detected as a change");
+  assert.equal(store.getNote(qid), "changed", "the newer note should win");
 });
 
 console.log(`\n${passed} checks passed.`);

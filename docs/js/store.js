@@ -3,7 +3,7 @@
 // localStorage immediately; the optional cloud layer (cloud.js) mirrors this
 // to Firestore and merges remote changes back in via mergeRemote().
 
-import { uid } from "./util.js";
+import { uid, stableStringify } from "./util.js";
 
 const KEY = "canham_adv_state_v1";
 const HISTORY_CAP = 200;
@@ -136,9 +136,11 @@ export function resetAll() {
 // Merge a remote snapshot (from the cloud) into local state. Returns true if
 // local state actually changed. Uses last-write-wins per record.
 export function mergeRemote(remote) {
-  const before = JSON.stringify(state);
+  // stableStringify ignores key order, so re-merging identical remote data is
+  // correctly seen as "no change" and avoids a needless notify + cloud write.
+  const before = stableStringify(state);
   state = mergeStates(state, normalize(remote));
-  const changed = JSON.stringify(state) !== before;
+  const changed = stableStringify(state) !== before;
   // Persist without bumping the clock (the merge already reconciled times).
   write({ bumpClock: false, notify: changed });
   return changed;

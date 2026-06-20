@@ -13,7 +13,8 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
   the next time that question comes up, and collect in a Notes tab.
 - **Scores & progress:** coverage and accuracy overall and per section, plus a
   history of recent sessions.
-- **Local-first:** works fully offline on one device with zero setup.
+- **Local-first:** no account or server needed — your notes, scores, and
+  progress live in your browser, with zero setup.
 - **Optional cross-device sync** (Firebase) so your notes/scores/progress
   follow you between phone and computer.
 

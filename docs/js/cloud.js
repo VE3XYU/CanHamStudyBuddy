@@ -10,6 +10,9 @@ import * as store from "./store.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/10.12.5";
 const WRITE_DEBOUNCE_MS = 800;
+// Upper bound on how long sign-out waits for a final flush. Firestore's setDoc
+// promise stays pending while offline, so sign-out must not await it unbounded.
+const FLUSH_TIMEOUT_MS = 4000;
 
 let cloud = { enabled: false, ready: false, signedIn: false, email: null, error: null };
 const listeners = new Set();
@@ -21,7 +24,9 @@ let writeTimer = null;
 let applyingRemote = false;
 let wasSignedIn = false; // true once a user has signed in this session
 let currentRef = null; // Firestore doc ref for the signed-in user
-let lastPushOk = false; // did the most recent cloud write succeed?
+// updatedAt of the newest local state the cloud is confirmed to hold (-1 = none
+// pushed yet). Compared against the live state to decide the sign-out wipe.
+let lastPushedAt = -1;
 
 function set(patch) {
   cloud = { ...cloud, ...patch };
@@ -96,13 +101,15 @@ async function handleAuth(user) {
   if (!user) {
     // A real sign-out (not the initial "no user" at page load) wipes this
     // browser's local copy so nothing lingers for the next person. We only do
-    // this once we're confident the cloud already has the data (lastPushOk), so
-    // a denied/misconfigured sync can never cause local data loss. The cloud
-    // document is untouched and is restored on the next sign-in.
-    if (wasSignedIn && lastPushOk) store.resetAll();
+    // this once we're confident the cloud already holds the CURRENT local state
+    // (the last confirmed push is at least as new as local). That way a
+    // denied/misconfigured/offline sync can never cause local data loss — the
+    // unsynced edits stay put. The cloud document is untouched and is restored
+    // on the next sign-in.
+    if (wasSignedIn && lastPushedAt >= store.getState().updatedAt) store.resetAll();
     wasSignedIn = false;
     currentRef = null;
-    lastPushOk = false;
+    lastPushedAt = -1;
     set({ signedIn: false, email: null });
     return;
   }
@@ -137,13 +144,18 @@ async function handleAuth(user) {
 
 async function pushNow(ref) {
   if (!fb) return false;
+  // Snapshot the version we're about to push first; on success that's the
+  // newest state the cloud is known to hold. No awaits between reading
+  // updatedAt and serializing, so they can't drift apart. On failure we leave
+  // lastPushedAt untouched (it stays behind local, keeping the wipe gate safe).
+  const snapshot = store.getState();
+  const pushedAt = snapshot.updatedAt || 0;
   try {
     // setDoc replaces the doc with the merged local state (small payload).
-    await fb.fs.setDoc(ref, JSON.parse(JSON.stringify(store.getState())));
-    lastPushOk = true;
+    await fb.fs.setDoc(ref, JSON.parse(JSON.stringify(snapshot)));
+    lastPushedAt = pushedAt;
     return true;
   } catch (e) {
-    lastPushOk = false;
     set({ error: String(e && e.message ? e.message : e) });
     return false;
   }
@@ -161,7 +173,14 @@ export async function signUp(email, password) {
 // the post-sign-out local wipe can't drop the last edits.
 async function flush() {
   clearTimeout(writeTimer);
-  if (cloud.signedIn && currentRef) await pushNow(currentRef);
+  if (!cloud.signedIn || !currentRef) return;
+  // pushNow never rejects; race it against a timeout so an offline (forever
+  // pending) write can't hang sign-out. If it times out, lastPushedAt stays
+  // behind local and the wipe is skipped — data is preserved, not lost.
+  await Promise.race([
+    pushNow(currentRef),
+    new Promise((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS)),
+  ]);
 }
 
 export async function signOutUser() {

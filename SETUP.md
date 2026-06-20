@@ -1,7 +1,8 @@
 # Setup & deployment
 
-The app is a static, client-side site in `docs/`. It works fully offline on one
-device with **no setup at all**; cloud sync across devices is optional.
+The app is a static, client-side site in `docs/`. It runs on one device with
+**no setup at all** — no account or server, everything is stored in your
+browser; cloud sync across devices is optional.
 
 ## 1. Run it locally
 
@@ -102,7 +103,7 @@ local testing.
 
 ### e. Use it
 
-Reload the app, open the **Sync** tab, and **Sign in** with the email/password
+Reload the app, open the **Login** tab, and **Sign in** with the email/password
 you created in the console (sign-up is disabled, so there's no "Create account"
 step). Sign in the same way on each device — notes, scores, and progress merge
 and stay in sync automatically. Signing out clears this browser's local copy
