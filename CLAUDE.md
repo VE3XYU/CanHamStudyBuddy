@@ -12,6 +12,12 @@ question bank. There is no server and no build/bundler step — the app in
 Persistence is **local-first** (localStorage) with **optional** cloud sync via
 Firebase. The app must always work with sync absent or unconfigured.
 
+## Workflow
+
+The maintainer wants changes delivered as pull requests. After committing and
+pushing work to a feature branch, **open a PR automatically** (branch → `main`)
+without asking first.
+
 ## Commands
 
 ```bash
