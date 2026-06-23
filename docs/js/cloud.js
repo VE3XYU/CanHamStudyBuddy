@@ -24,6 +24,7 @@ let writeTimer = null;
 let applyingRemote = false;
 let wasSignedIn = false; // true once a user has signed in this session
 let currentRef = null; // Firestore doc ref for the signed-in user
+let currentUid = null; // uid of the signed-in user (for central flag reports)
 // updatedAt of the newest local state the cloud is confirmed to hold (-1 = none
 // pushed yet). Compared against the live state to decide the sign-out wipe.
 let lastPushedAt = -1;
@@ -109,6 +110,7 @@ async function handleAuth(user) {
     if (wasSignedIn && lastPushedAt >= store.getState().updatedAt) store.resetAll();
     wasSignedIn = false;
     currentRef = null;
+    currentUid = null;
     lastPushedAt = -1;
     set({ signedIn: false, email: null });
     return;
@@ -119,6 +121,7 @@ async function handleAuth(user) {
   const { fs, db } = fb;
   const ref = fs.doc(db, "users", user.uid);
   currentRef = ref;
+  currentUid = user.uid;
 
   try {
     const snap = await fs.getDoc(ref);
@@ -127,6 +130,11 @@ async function handleAuth(user) {
     /* an initial read failure shouldn't block local use */
   }
   await pushNow(ref);
+
+  // Mirror any existing local flags to the central collection on sign-in, so
+  // flags made offline or before signing in still reach the maintainer.
+  const flags = store.getState().flags || {};
+  for (const qid of Object.keys(flags)) reportFlag(qid, flags[qid].reason || "");
 
   unsubSnapshot = fs.onSnapshot(ref, (snap) => {
     if (!snap.exists() || snap.metadata.hasPendingWrites) return;
@@ -190,4 +198,40 @@ export async function signOutUser() {
     /* don't block sign-out on a final sync */
   }
   await fb.auth.signOut(fb.authInst);
+}
+
+// --- central explanation flags ---------------------------------------------
+// When a signed-in user flags an AI explanation, mirror it to a top-level
+// `explanation_flags` collection the maintainer can review (separate from the
+// user's private users/{uid} state). The doc id is `{uid}__{qid}`, so a user
+// has one flag per question: re-flagging updates it, un-flagging deletes it.
+// Best-effort and always non-throwing — when sync is off or the user isn't
+// signed in this no-ops and the flag simply stays local.
+const FLAGS_COLLECTION = "explanation_flags";
+
+export async function reportFlag(qid, reason) {
+  if (!fb || !cloud.signedIn || !currentUid || !qid) return;
+  try {
+    const { fs, db } = fb;
+    const ref = fs.doc(db, FLAGS_COLLECTION, `${currentUid}__${qid}`);
+    await fs.setDoc(ref, {
+      qid,
+      uid: currentUid,
+      email: cloud.email || null,
+      reason: (reason || "").slice(0, 2000),
+      updatedAt: fs.serverTimestamp(),
+    });
+  } catch (_) {
+    /* reporting a flag must never break the app */
+  }
+}
+
+export async function withdrawFlag(qid) {
+  if (!fb || !cloud.signedIn || !currentUid || !qid) return;
+  try {
+    const { fs, db } = fb;
+    await fs.deleteDoc(fs.doc(db, FLAGS_COLLECTION, `${currentUid}__${qid}`));
+  } catch (_) {
+    /* best-effort */
+  }
 }

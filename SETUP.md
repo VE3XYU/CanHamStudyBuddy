@@ -79,13 +79,23 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, write: if allowed() && request.auth.uid == uid;
     }
+
+    // Flagged AI explanations. An allowed user may create/update/delete only
+    // their own flag (doc id "{uid}__{qid}", so one per question). Clients can
+    // never read others' flags — you review them in the Firebase console.
+    match /explanation_flags/{flagId} {
+      allow create, update: if allowed()
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if allowed() && resource.data.uid == request.auth.uid;
+      allow read: if false;
+    }
   }
 }
 ```
 
 Two independent gates: the email must be on the allowlist, and each account can
-touch only its own `users/{uid}` document. Add classmates' emails to the list
-when you open it up. Everything else is denied by default.
+touch only its own `users/{uid}` document (and its own flags). Add classmates'
+emails to the list when you open it up. Everything else is denied by default.
 
 ### c. Add your web config to the app
 
@@ -108,6 +118,25 @@ you created in the console (sign-up is disabled, so there's no "Create account"
 step). Sign in the same way on each device — notes, scores, and progress merge
 and stay in sync automatically. Signing out clears this browser's local copy
 (your data stays in the cloud and returns when you sign back in).
+
+### f. Reviewing flagged explanations
+
+When a signed-in user taps **Flag as wrong** on an explanation, the app writes a
+document to the top-level **`explanation_flags`** collection (separate from each
+user's private `users/{uid}` data). Each doc holds the question id (`qid`), the
+reporter's `uid` and `email`, their optional `reason`, and an `updatedAt`
+timestamp; the doc id is `{uid}__{qid}`, so re-flagging updates it in place and
+un-flagging deletes it.
+
+Review them in the console under **Firestore → Data → `explanation_flags`** (sort
+by `updatedAt`). The rules deny client reads, so only you — through the console
+or the Admin SDK — can see them. To fix a flagged explanation, edit the matching
+entry in `explanations/section-N.json` and rebuild with `python3
+scripts/build_explanations.py`.
+
+> Flags are only sent for **signed-in** users (they ride your Firebase project).
+> A user who never signs in keeps their flags on-device only, so encourage
+> sign-in if you want their feedback.
 
 ## 4. Regenerating the question data
 

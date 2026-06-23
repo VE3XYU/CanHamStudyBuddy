@@ -100,14 +100,20 @@ function explanationBlock(id) {
   if (!text) return "";
   const safeId = escapeHTML(id);
   const flag = store.getFlag(id);
+  const c = cloud.cloudState();
+  const stateMsg = c.enabled && c.signedIn
+    ? "⚑ Flagged — sent to the author for review. Thanks!"
+    : c.enabled
+      ? "⚑ Flagged on this device — sign in to send it to the author."
+      : "⚑ Flagged on this device. Thanks!";
   const flagUI = flag
     ? `<div class="flag-row">
-        <span class="flag-state">⚑ Flagged — thanks, we'll review this.</span>
+        <span class="flag-state">${stateMsg}</span>
         <button class="link" data-action="unflag-expl" data-qid="${safeId}">Undo</button>
       </div>
       <label class="field flag-reason">
         <span>What seems wrong? <span class="muted">(optional)</span> <span class="saved" data-saved-for="flag:${safeId}"></span></span>
-        <textarea data-flag-qid="${safeId}" rows="2" placeholder="Tell the author what looks off — this stays on your device.">${escapeHTML(flag.reason || "")}</textarea>
+        <textarea data-flag-qid="${safeId}" rows="2" placeholder="Tell the author what looks wrong.">${escapeHTML(flag.reason || "")}</textarea>
       </label>`
     : `<div class="flag-row">
         <button class="link flag-btn" data-action="flag-expl" data-qid="${safeId}">⚑ Flag as wrong</button>
@@ -509,12 +515,15 @@ function flushVisibleInputs() {
 function flagExpl(qid) {
   flushVisibleInputs();
   store.setFlagged(qid, true);
+  const f = store.getFlag(qid);
+  cloud.reportFlag(qid, f ? f.reason : "");
   render();
 }
 
 function unflagExpl(qid) {
   flushVisibleInputs();
   store.setFlagged(qid, false);
+  cloud.withdrawFlag(qid);
   render();
 }
 
@@ -654,6 +663,7 @@ function onInput(e) {
     clearTimeout(noteTimers[key]);
     noteTimers[key] = setTimeout(() => {
       store.setFlagged(qid, true, flagTa.value);
+      cloud.reportFlag(qid, flagTa.value);
       flashSaved(key);
     }, 400);
   }
