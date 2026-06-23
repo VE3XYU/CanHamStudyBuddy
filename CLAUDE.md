@@ -58,17 +58,24 @@ just don't show one), so they can be authored section by section. Every shown
 explainer carries the AI-generated disclaimer; keep it.
 
 **State (`docs/js/store.js`).** The single source of truth at runtime. Holds
-`stats` (per-question attempts/correct/lastResult), `notes`, and `history`,
-persisted to localStorage under `canham_adv_state_v1`. All writes go through
-the store, which notifies subscribers. `mergeStates`/`mergeRemote` reconcile
-local and cloud copies with **last-write-wins per record** (by `lastSeenAt` /
-`updatedAt`); history is unioned by id.
+`stats` (per-question attempts/correct/lastResult), `notes`, `flags` (the user
+marking an AI explanation as possibly wrong, with an optional free-text reason),
+and `history`, persisted to localStorage under `canham_adv_state_v1`. All writes
+go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
+reconcile local and cloud copies with **last-write-wins per record** (by
+`lastSeenAt` / `updatedAt`); history is unioned by id. Flags are local-first
+like notes and ride the user's own optional cloud sync; additionally, when
+signed in, they're mirrored to a central `explanation_flags` collection for the
+maintainer to review (see `cloud.js` / `SETUP.md`).
 
 **Cloud sync (`docs/js/cloud.js`).** Optional, layered on top of the store.
 Dynamically imports `docs/js/firebase-config.js`; if it's missing or has no
 `apiKey`, the module reports `{ enabled: false }` and the app stays local-only.
 When signed in, it mirrors `store.getState()` to `users/{uid}` in Firestore and
-merges remote snapshots back via `store.mergeRemote`. On sign-out it clears
+merges remote snapshots back via `store.mergeRemote`. It also exposes
+`reportFlag`/`withdrawFlag`, which write a signed-in user's explanation flags to
+a top-level `explanation_flags` collection (doc id `{uid}__{qid}`) for the
+maintainer to review — the only data that leaves the user's own document. On sign-out it clears
 local state (only after a confirmed cloud write) so a shared browser can't leak
 the previous user's data; the cloud copy is restored on next sign-in. Keep this
 strictly optional — never make core flows depend on it.

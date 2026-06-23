@@ -35,7 +35,7 @@ function now() {
 }
 
 function emptyState() {
-  return { v: STATE_VERSION, stats: {}, notes: {}, history: [], updatedAt: 0 };
+  return { v: STATE_VERSION, stats: {}, notes: {}, flags: {}, history: [], updatedAt: 0 };
 }
 
 function normalize(raw) {
@@ -44,6 +44,7 @@ function normalize(raw) {
     v: STATE_VERSION,
     stats: raw.stats && typeof raw.stats === "object" ? raw.stats : {},
     notes: raw.notes && typeof raw.notes === "object" ? raw.notes : {},
+    flags: raw.flags && typeof raw.flags === "object" ? raw.flags : {},
     history: Array.isArray(raw.history) ? raw.history : [],
     updatedAt: Number(raw.updatedAt) || 0,
   };
@@ -120,6 +121,26 @@ export function setNote(qid, text) {
   write();
 }
 
+// Flags: the user marking an AI-generated explanation as possibly wrong, with
+// an optional free-text reason. Local-first like notes — the presence of a
+// record means "flagged"; clearing it removes the record.
+export function getFlag(qid) {
+  return state.flags[qid] || null;
+}
+
+export function setFlagged(qid, flagged, reason = "") {
+  const existing = state.flags[qid];
+  if (!flagged) {
+    if (!existing) return; // nothing to change
+    delete state.flags[qid];
+  } else {
+    const r = (reason || "").trim();
+    if (existing && existing.reason === r) return; // unchanged
+    state.flags[qid] = { reason: r, updatedAt: now() };
+  }
+  write();
+}
+
 export function addHistory(entry) {
   const record = { id: uid(), ...entry };
   state.history.unshift(record);
@@ -166,6 +187,15 @@ export function mergeStates(a, b) {
     if (!na) out.notes[nid] = nb;
     else if (!nb) out.notes[nid] = na;
     else out.notes[nid] = (nb.updatedAt || 0) > (na.updatedAt || 0) ? nb : na;
+  }
+
+  const fids = new Set([...Object.keys(a.flags || {}), ...Object.keys(b.flags || {})]);
+  for (const fid of fids) {
+    const fa = (a.flags || {})[fid];
+    const fb = (b.flags || {})[fid];
+    if (!fa) out.flags[fid] = fb;
+    else if (!fb) out.flags[fid] = fa;
+    else out.flags[fid] = (fb.updatedAt || 0) > (fa.updatedAt || 0) ? fb : fa;
   }
 
   const byId = new Map();

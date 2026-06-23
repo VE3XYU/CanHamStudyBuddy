@@ -151,6 +151,26 @@ check("mergeStates resolves notes and stats by last-write-wins", async () => {
   assert.equal(merged.history.length, 2, "history deduped by id");
 });
 
+check("setFlagged stores, trims, and clears an explanation flag", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  assert.equal(store.getFlag(qid), null, "starts unflagged");
+  store.setFlagged(qid, true, "  looks wrong  ");
+  assert.equal(store.getFlag(qid).reason, "looks wrong", "reason is trimmed and stored");
+  store.setFlagged(qid, false);
+  assert.equal(store.getFlag(qid), null, "unflagging removes the record");
+});
+
+check("mergeStates resolves explanation flags by last-write-wins", async () => {
+  const store = await import("../docs/js/store.js");
+  const a = { stats: {}, notes: {}, flags: { q1: { reason: "old", updatedAt: 100 }, q2: { reason: "keep", updatedAt: 50 } }, history: [], updatedAt: 100 };
+  const b = { stats: {}, notes: {}, flags: { q1: { reason: "new", updatedAt: 200 } }, history: [], updatedAt: 200 };
+  const merged = store.mergeStates(a, b);
+  assert.equal(merged.flags.q1.reason, "new", "newer flag wins");
+  assert.equal(merged.flags.q2.reason, "keep", "non-conflicting flag retained");
+});
+
 check("stableStringify ignores key order but not content or array order", () => {
   assert.equal(stableStringify({ a: 1, b: 2 }), stableStringify({ b: 2, a: 1 }));
   assert.equal(stableStringify({ x: { p: 1, q: 2 } }), stableStringify({ x: { q: 2, p: 1 } }));
