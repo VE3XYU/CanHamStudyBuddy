@@ -98,11 +98,26 @@ function accuracyKind(p) {
 function explanationBlock(id) {
   const text = EXPLANATIONS[id];
   if (!text) return "";
+  const safeId = escapeHTML(id);
+  const flag = store.getFlag(id);
+  const flagUI = flag
+    ? `<div class="flag-row">
+        <span class="flag-state">⚑ Flagged — thanks, we'll review this.</span>
+        <button class="link" data-action="unflag-expl" data-qid="${safeId}">Undo</button>
+      </div>
+      <label class="field flag-reason">
+        <span>What seems wrong? <span class="muted">(optional)</span> <span class="saved" data-saved-for="flag:${safeId}"></span></span>
+        <textarea data-flag-qid="${safeId}" rows="2" placeholder="Tell the author what looks off — this stays on your device.">${escapeHTML(flag.reason || "")}</textarea>
+      </label>`
+    : `<div class="flag-row">
+        <button class="link flag-btn" data-action="flag-expl" data-qid="${safeId}">⚑ Flag as wrong</button>
+      </div>`;
   return `
     <div class="explain">
       <div class="explain-head">Explanation</div>
       <p class="explain-body">${escapeHTML(text)}</p>
       <p class="explain-note">${escapeHTML(EXPLANATIONS_DISCLAIMER)}</p>
+      ${flagUI}
     </div>`;
 }
 
@@ -351,33 +366,48 @@ function renderStats() {
 }
 
 // --- notes ------------------------------------------------------------------
-function renderNotes() {
-  const notes = store.getState().notes;
-  const ids = Object.keys(notes).sort();
-  if (!ids.length) {
-    return `<section class="stack"><h2 class="section-title">My notes</h2>
-      <p class="empty">No notes yet. Add notes after answering questions during a quiz and they'll collect here.</p></section>`;
-  }
-  const items = ids.map((id) => {
-    const q = QMAP.get(id);
-    return `<div class="card stack">
-      <div class="muted small">${escapeHTML(id)}${q ? " · " + escapeHTML(sectionLabel(q.section)) : ""}</div>
-      ${q ? `<div class="review-q">${escapeHTML(q.q)}</div>
-        <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(q.correct)}</div>
-        ${explanationBlock(id)}` : ""}
-      <label class="field">
-        <span>Note <span class="saved" data-saved-for="${escapeHTML(id)}"></span></span>
-        <textarea data-note-qid="${escapeHTML(id)}" rows="3">${escapeHTML(notes[id].text)}</textarea>
-      </label>
-      <button class="btn btn-sm btn-ghost" data-action="del-note" data-qid="${escapeHTML(id)}">Delete note</button>
-    </div>`;
-  }).join("");
+function questionMeta(id) {
+  const q = QMAP.get(id);
+  return `<div class="muted small">${escapeHTML(id)}${q ? " · " + escapeHTML(sectionLabel(q.section)) : ""}</div>
+    ${q ? `<div class="review-q">${escapeHTML(q.q)}</div>
+      <div class="review-a"><span class="tag ok">Correct</span> ${escapeHTML(q.correct)}</div>` : ""}`;
+}
 
-  return `<section class="stack">
-    <h2 class="section-title">My notes (${ids.length})</h2>
-    <button class="btn btn-block" data-action="study-notes">Quiz these ${ids.length} question${ids.length === 1 ? "" : "s"}</button>
-    <div class="stack">${items}</div>
-  </section>`;
+function renderNotes() {
+  const state = store.getState();
+  const noteIds = Object.keys(state.notes).sort();
+  const flagIds = Object.keys(state.flags).sort();
+
+  if (!noteIds.length && !flagIds.length) {
+    return `<section class="stack"><h2 class="section-title">Notes &amp; flags</h2>
+      <p class="empty">Nothing here yet. After answering a question you can add a note, or flag an explanation that looks wrong — both collect here.</p></section>`;
+  }
+
+  const flagged = flagIds.length ? `
+    <h2 class="section-title">Flagged explanations (${flagIds.length})</h2>
+    <div class="stack">
+      ${flagIds.map((id) => `<div class="card stack">
+        ${questionMeta(id)}
+        ${explanationBlock(id)}
+      </div>`).join("")}
+    </div>` : "";
+
+  const notes = noteIds.length ? `
+    <h2 class="section-title">My notes (${noteIds.length})</h2>
+    <button class="btn btn-block" data-action="study-notes">Quiz these ${noteIds.length} question${noteIds.length === 1 ? "" : "s"}</button>
+    <div class="stack">
+      ${noteIds.map((id) => `<div class="card stack">
+        ${questionMeta(id)}
+        ${QMAP.get(id) ? explanationBlock(id) : ""}
+        <label class="field">
+          <span>Note <span class="saved" data-saved-for="${escapeHTML(id)}"></span></span>
+          <textarea data-note-qid="${escapeHTML(id)}" rows="3">${escapeHTML(state.notes[id].text)}</textarea>
+        </label>
+        <button class="btn btn-sm btn-ghost" data-action="del-note" data-qid="${escapeHTML(id)}">Delete note</button>
+      </div>`).join("")}
+    </div>` : "";
+
+  return `<section class="stack">${flagged}${notes}</section>`;
 }
 
 // --- account / sync ---------------------------------------------------------
@@ -465,6 +495,27 @@ function answer(optIndex) {
 function saveCurrentNote() {
   const ta = viewEl().querySelector("textarea[data-note-qid]");
   if (ta) store.setNote(ta.dataset.noteQid, ta.value);
+}
+
+// Persist any live note / flag-reason fields before a re-render so toggling a
+// flag never discards what the user was typing.
+function flushVisibleInputs() {
+  const root = viewEl();
+  if (!root) return;
+  root.querySelectorAll("textarea[data-note-qid]").forEach((ta) => store.setNote(ta.dataset.noteQid, ta.value));
+  root.querySelectorAll("textarea[data-flag-qid]").forEach((ta) => store.setFlagged(ta.dataset.flagQid, true, ta.value));
+}
+
+function flagExpl(qid) {
+  flushVisibleInputs();
+  store.setFlagged(qid, true);
+  render();
+}
+
+function unflagExpl(qid) {
+  flushVisibleInputs();
+  store.setFlagged(qid, false);
+  render();
 }
 
 function nextQuestion() {
@@ -576,6 +627,8 @@ function onClick(e) {
     case "reset": resetProgress(); break;
     case "del-note": delNote(el.dataset.qid); break;
     case "study-notes": studyNotes(); break;
+    case "flag-expl": flagExpl(el.dataset.qid); break;
+    case "unflag-expl": unflagExpl(el.dataset.qid); break;
     case "signup": doAuth("signup"); break;
     case "signout": cloud.signOutUser(); break;
     case "toggle-theme": toggleTheme(); break;
@@ -585,13 +638,25 @@ function onClick(e) {
 
 function onInput(e) {
   const ta = e.target.closest("textarea[data-note-qid]");
-  if (!ta) return;
-  const qid = ta.dataset.noteQid;
-  clearTimeout(noteTimers[qid]);
-  noteTimers[qid] = setTimeout(() => {
-    store.setNote(qid, ta.value);
-    flashSaved(qid);
-  }, 400);
+  if (ta) {
+    const qid = ta.dataset.noteQid;
+    clearTimeout(noteTimers[qid]);
+    noteTimers[qid] = setTimeout(() => {
+      store.setNote(qid, ta.value);
+      flashSaved(qid);
+    }, 400);
+    return;
+  }
+  const flagTa = e.target.closest("textarea[data-flag-qid]");
+  if (flagTa) {
+    const qid = flagTa.dataset.flagQid;
+    const key = "flag:" + qid;
+    clearTimeout(noteTimers[key]);
+    noteTimers[key] = setTimeout(() => {
+      store.setFlagged(qid, true, flagTa.value);
+      flashSaved(key);
+    }, 400);
+  }
 }
 
 function onChange(e) {

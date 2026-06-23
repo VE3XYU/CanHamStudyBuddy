@@ -256,6 +256,14 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; font-si
 /* Tighter when nested in review/notes cards. */
 .review .explain, .card .explain { margin-top: 2px; }
 
+/* flag-an-explanation control */
+.flag-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.flag-btn { color: var(--muted); padding: 2px 0; font-size: .82rem; }
+.flag-btn:active { color: var(--low); }
+.flag-state { font-size: .82rem; font-weight: 600; color: var(--low); }
+.flag-reason { margin-top: 8px; }
+.flag-reason textarea { font-size: .9rem; }
+
 /* ---- review / notes ---- */
 .review-q { font-weight: 600; }
 .review-a, .review-note { font-size: .92rem; }

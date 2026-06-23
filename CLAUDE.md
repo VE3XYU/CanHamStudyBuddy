@@ -58,11 +58,14 @@ just don't show one), so they can be authored section by section. Every shown
 explainer carries the AI-generated disclaimer; keep it.
 
 **State (`docs/js/store.js`).** The single source of truth at runtime. Holds
-`stats` (per-question attempts/correct/lastResult), `notes`, and `history`,
-persisted to localStorage under `canham_adv_state_v1`. All writes go through
-the store, which notifies subscribers. `mergeStates`/`mergeRemote` reconcile
-local and cloud copies with **last-write-wins per record** (by `lastSeenAt` /
-`updatedAt`); history is unioned by id.
+`stats` (per-question attempts/correct/lastResult), `notes`, `flags` (the user
+marking an AI explanation as possibly wrong, with an optional free-text reason),
+and `history`, persisted to localStorage under `canham_adv_state_v1`. All writes
+go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
+reconcile local and cloud copies with **last-write-wins per record** (by
+`lastSeenAt` / `updatedAt`); history is unioned by id. Flags are local-first
+like notes — they stay on the device and ride the user's own optional cloud
+sync; nothing is sent to a central/maintainer store.
 
 **Cloud sync (`docs/js/cloud.js`).** Optional, layered on top of the store.
 Dynamically imports `docs/js/firebase-config.js`; if it's missing or has no

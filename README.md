@@ -11,7 +11,8 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
 - **Three modes:** all questions, only-unseen, or review-my-mistakes.
 - **Per-question explainers** shown after you answer — a short note on how the
   calculation is done or why the tricky distractors are wrong (AI-generated, so
-  flagged as such alongside your own notes).
+  flagged as such alongside your own notes). If one looks wrong, **flag it** and
+  optionally say why; flagged explanations collect in the Notes tab.
 - **Per-question notes** you add after answering — they reappear automatically
   the next time that question comes up, and collect in a Notes tab.
 - **Scores & progress:** coverage and accuracy overall and per section, plus a
