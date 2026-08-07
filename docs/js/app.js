@@ -133,6 +133,7 @@ function renderDashboard() {
   const overall = computeOverall(QUESTIONS, stats);
   const bySection = computeBySection(QUESTIONS, stats);
   const history = store.getState().history;
+  const nFocus = store.focusCount();
 
   const sectionCards = bySection.map((s) => `
     <div class="section-row">
@@ -164,6 +165,13 @@ function renderDashboard() {
         (${pct(history[0].correct, history[0].total)}%)</p>
     </div>` : "";
 
+  const practice = nFocus ? `
+    <div class="card">
+      <div class="card-title">Needs practice</div>
+      <p class="muted small">${nFocus} question${nFocus === 1 ? "" : "s"} you marked “I have no idea” — these come up more often, and drop off after 3 correct in a row.</p>
+      <button class="btn btn-primary btn-block" data-action="study-focus">Practice ${nFocus === 1 ? "it" : "them"}</button>
+    </div>` : "";
+
   return `
     <section class="stack">
       <div class="card hero">
@@ -185,6 +193,7 @@ function renderDashboard() {
         <button class="btn btn-primary btn-block" data-action="study" data-section="all">Start studying</button>
       </div>
       ${recent}
+      ${practice}
       <h2 class="section-title">Study by section</h2>
       <div class="stack">${sectionCards}</div>
     </section>`;
@@ -194,9 +203,10 @@ function renderDashboard() {
 function renderSetup() {
   const { section, mode, length } = appState.setup;
   const stats = store.getState().stats;
+  const focus = store.getState().focus;
   // Just need the count here — avoid building (and shuffling) a throwaway quiz
   // on every filter change.
-  const pool = eligible(QUESTIONS, { section, mode, stats }).length;
+  const pool = eligible(QUESTIONS, { section, mode, stats, focus }).length;
 
   const sectionOpts = [
     `<option value="all" ${section === "all" ? "selected" : ""}>All sections (${QUESTIONS.length})</option>`,
@@ -212,7 +222,7 @@ function renderSetup() {
 
   const none = pool === 0;
   const hint = none
-    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : "."}</p>`
+    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : "."}</p>`
     : `<p class="muted small">${pool} question${pool === 1 ? "" : "s"} available with these filters.</p>`;
 
   return `
@@ -261,6 +271,7 @@ function renderQuiz() {
   let feedback = "";
   if (answered) {
     const note = escapeHTML(store.getNote(item.id));
+    const focused = store.isFocused(item.id);
     const verdict = ans.correct
       ? `<div class="verdict ok">Correct</div>`
       : `<div class="verdict bad">Not quite — the correct answer is highlighted.</div>`;
@@ -268,6 +279,10 @@ function renderQuiz() {
     feedback = `
       ${verdict}
       ${explanationBlock(item.id)}
+      <label class="idk">
+        <input type="checkbox" data-idk-qid="${escapeHTML(item.id)}" ${focused ? "checked" : ""}>
+        <span>I have no idea — show this one more often</span>
+      </label>
       <div class="note-block">
         <label class="field">
           <span>Your note for this question <span class="saved" data-saved-for="${escapeHTML(item.id)}"></span></span>
@@ -482,6 +497,7 @@ function startQuiz() {
     mode,
     length: length === "all" ? 0 : Number(length),
     stats: store.getState().stats,
+    focus: store.getState().focus,
   });
   startSession(quiz);
 }
@@ -636,6 +652,7 @@ function onClick(e) {
     case "reset": resetProgress(); break;
     case "del-note": delNote(el.dataset.qid); break;
     case "study-notes": studyNotes(); break;
+    case "study-focus": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "focus" } }); break;
     case "flag-expl": flagExpl(el.dataset.qid); break;
     case "unflag-expl": unflagExpl(el.dataset.qid); break;
     case "signup": doAuth("signup"); break;
@@ -670,6 +687,11 @@ function onInput(e) {
 }
 
 function onChange(e) {
+  const idk = e.target.closest("input[data-idk-qid]");
+  if (idk) {
+    store.setFocus(idk.dataset.idkQid, idk.checked);
+    return;
+  }
   const sel = e.target.closest("select[data-setup]");
   if (!sel) return;
   appState.setup = { ...appState.setup, [sel.dataset.setup]: sel.value };
