@@ -8,6 +8,9 @@ import { uid, stableStringify } from "./util.js";
 const KEY = "canham_adv_state_v1";
 const HISTORY_CAP = 200;
 const STATE_VERSION = 1;
+// A "needs practice" mark auto-clears once the question has been answered
+// correctly this many times in a row.
+const FOCUS_CLEAR_STREAK = 3;
 
 // Safe storage: falls back to an in-memory map when localStorage is
 // unavailable (private mode, Node test runs, etc.) so the app never throws.
@@ -35,7 +38,7 @@ function now() {
 }
 
 function emptyState() {
-  return { v: STATE_VERSION, stats: {}, notes: {}, flags: {}, history: [], updatedAt: 0 };
+  return { v: STATE_VERSION, stats: {}, notes: {}, flags: {}, focus: {}, history: [], updatedAt: 0 };
 }
 
 function normalize(raw) {
@@ -45,6 +48,7 @@ function normalize(raw) {
     stats: raw.stats && typeof raw.stats === "object" ? raw.stats : {},
     notes: raw.notes && typeof raw.notes === "object" ? raw.notes : {},
     flags: raw.flags && typeof raw.flags === "object" ? raw.flags : {},
+    focus: raw.focus && typeof raw.focus === "object" ? raw.focus : {},
     history: Array.isArray(raw.history) ? raw.history : [],
     updatedAt: Number(raw.updatedAt) || 0,
   };
@@ -101,6 +105,18 @@ export function recordAnswer(qid, isCorrect) {
     lastResult: isCorrect ? "correct" : "incorrect",
     lastSeenAt: now(),
   };
+  // A "needs practice" question tracks a streak of consecutive correct answers;
+  // a wrong answer resets it, and reaching the threshold auto-clears the mark.
+  const f = state.focus[qid];
+  if (f) {
+    if (isCorrect) {
+      const streak = (f.streak || 0) + 1;
+      if (streak >= FOCUS_CLEAR_STREAK) delete state.focus[qid];
+      else state.focus[qid] = { streak, updatedAt: now() };
+    } else {
+      state.focus[qid] = { streak: 0, updatedAt: now() };
+    }
+  }
   write();
 }
 
@@ -139,6 +155,28 @@ export function setFlagged(qid, flagged, reason = "") {
     state.flags[qid] = { reason: r, updatedAt: now() };
   }
   write();
+}
+
+// Focus: the user marking a question "I have no idea" so it rotates more often.
+// The record holds a `streak` of consecutive correct answers (see recordAnswer);
+// presence of the record means "needs practice".
+export function isFocused(qid) {
+  return !!state.focus[qid];
+}
+
+export function setFocus(qid, focused) {
+  if (focused) {
+    if (state.focus[qid]) return; // already marked — keep its streak
+    state.focus[qid] = { streak: 0, updatedAt: now() };
+  } else {
+    if (!state.focus[qid]) return;
+    delete state.focus[qid];
+  }
+  write();
+}
+
+export function focusCount() {
+  return Object.keys(state.focus).length;
 }
 
 export function addHistory(entry) {
@@ -196,6 +234,15 @@ export function mergeStates(a, b) {
     if (!fa) out.flags[fid] = fb;
     else if (!fb) out.flags[fid] = fa;
     else out.flags[fid] = (fb.updatedAt || 0) > (fa.updatedAt || 0) ? fb : fa;
+  }
+
+  const focusIds = new Set([...Object.keys(a.focus || {}), ...Object.keys(b.focus || {})]);
+  for (const id of focusIds) {
+    const xa = (a.focus || {})[id];
+    const xb = (b.focus || {})[id];
+    if (!xa) out.focus[id] = xb;
+    else if (!xb) out.focus[id] = xa;
+    else out.focus[id] = (xb.updatedAt || 0) > (xa.updatedAt || 0) ? xb : xa;
   }
 
   const byId = new Map();
