@@ -105,6 +105,26 @@ check("buildFromQuestions wraps an explicit list", () => {
   assert.equal(quiz.mode, "retry");
 });
 
+check("focus mode filters to marked questions; weighting favours them", () => {
+  const ids = QUESTIONS.slice(0, 2).map((q) => q.id);
+  const focus = { [ids[0]]: { streak: 0, updatedAt: 1 }, [ids[1]]: { streak: 0, updatedAt: 1 } };
+
+  const only = eligible(QUESTIONS, { section: "all", mode: "focus", focus });
+  assert.deepEqual(only.map((q) => q.id).sort(), [...ids].sort());
+
+  // Over many capped builds a marked question is included far more often than a
+  // specific unmarked one (weight FOCUS_WEIGHT vs 1).
+  const marked = ids[0];
+  const plain = QUESTIONS[200].id;
+  let markedIn = 0, plainIn = 0;
+  for (let i = 0; i < 600; i++) {
+    const picked = new Set(buildQuiz(QUESTIONS, { mode: "all", length: 25, focus }).items.map((it) => it.id));
+    if (picked.has(marked)) markedIn++;
+    if (picked.has(plain)) plainIn++;
+  }
+  assert.ok(markedIn > plainIn, `marked inclusion ${markedIn} should exceed plain ${plainIn}`);
+});
+
 // --- stats ------------------------------------------------------------------
 check("overall + per-section stats reconcile", () => {
   const ids = QUESTIONS.filter((q) => q.section === 1).slice(0, 4).map((q) => q.id);
@@ -169,6 +189,35 @@ check("mergeStates resolves explanation flags by last-write-wins", async () => {
   const merged = store.mergeStates(a, b);
   assert.equal(merged.flags.q1.reason, "new", "newer flag wins");
   assert.equal(merged.flags.q2.reason, "keep", "non-conflicting flag retained");
+});
+
+check("focus auto-clears after 3 correct in a row and resets on a miss", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  store.setFocus(qid, true);
+  assert.equal(store.isFocused(qid), true);
+  store.recordAnswer(qid, true);   // streak 1
+  store.recordAnswer(qid, true);   // streak 2
+  assert.equal(store.isFocused(qid), true, "still marked before the threshold");
+  store.recordAnswer(qid, true);   // streak 3 -> mastered
+  assert.equal(store.isFocused(qid), false, "cleared after 3 correct in a row");
+
+  store.setFocus(qid, true);
+  store.recordAnswer(qid, true);   // streak 1
+  store.recordAnswer(qid, false);  // a miss resets it
+  store.recordAnswer(qid, true);   // streak 1
+  store.recordAnswer(qid, true);   // streak 2
+  assert.equal(store.isFocused(qid), true, "a miss resets the streak, so still marked");
+});
+
+check("mergeStates resolves focus marks by last-write-wins", async () => {
+  const store = await import("../docs/js/store.js");
+  const a = { stats: {}, notes: {}, flags: {}, focus: { q1: { streak: 1, updatedAt: 100 }, q2: { streak: 0, updatedAt: 50 } }, history: [], updatedAt: 100 };
+  const b = { stats: {}, notes: {}, flags: {}, focus: { q1: { streak: 2, updatedAt: 200 } }, history: [], updatedAt: 200 };
+  const merged = store.mergeStates(a, b);
+  assert.equal(merged.focus.q1.streak, 2, "newer focus mark wins");
+  assert.equal(merged.focus.q2.streak, 0, "non-conflicting focus mark retained");
 });
 
 check("stableStringify ignores key order but not content or array order", () => {
