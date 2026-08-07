@@ -16,7 +16,9 @@ Firebase. The app must always work with sync absent or unconfigured.
 
 The maintainer wants changes delivered as pull requests. After committing and
 pushing work to a feature branch, **open a PR automatically** (branch → `main`)
-without asking first.
+without asking first. **Do not put the Claude Code session link** (any
+`claude.ai/code/session…` URL) in PR descriptions or commit messages — the short
+"Generated with Claude Code" line is fine.
 
 ## Commands
 
