@@ -9,9 +9,10 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
 - **Study by section** or across the whole bank.
 - **Randomized** question order *and* answer-option order on every quiz.
 - **Four modes:** all questions, only-unseen, review-my-mistakes, or needs-practice.
-- **"I have no idea" tick** on any question during a quiz — marked questions come
-  up more often (a dedicated *Needs practice* mode plus weighted rotation), and a
-  mark drops off automatically after you answer it correctly three times in a row.
+- **"I have no idea" tick** on any question — check it *before* answering to flag
+  a guess, so a lucky correct answer doesn't count. Marked questions come up more
+  often (a dedicated *Needs practice* mode plus weighted rotation), and a mark
+  drops off only after three correct-and-not-guessed answers in a row.
 - **Per-question explainers** shown after you answer — a short note on how the
   calculation is done or why the tricky distractors are wrong (AI-generated, so
   flagged as such alongside your own notes). If one looks wrong, **flag it** and

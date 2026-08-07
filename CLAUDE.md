@@ -63,8 +63,9 @@ explainer carries the AI-generated disclaimer; keep it.
 `stats` (per-question attempts/correct/lastResult), `notes`, `flags` (the user
 marking an AI explanation as possibly wrong, with an optional free-text reason),
 `focus` (questions the user marked "I have no idea" — they rotate more often and
-auto-clear after `FOCUS_CLEAR_STREAK` correct answers in a row; `recordAnswer`
-maintains the streak), and `history`, persisted to localStorage under
+auto-clear after `FOCUS_CLEAR_STREAK` correct answers in a row that weren't
+flagged as guesses; `recordAnswer` maintains the streak and a lucky guess resets
+it), and `history`, persisted to localStorage under
 `canham_adv_state_v1`. All writes
 go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
 reconcile local and cloud copies with **last-write-wins per record** (by
