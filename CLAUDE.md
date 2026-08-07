@@ -60,7 +60,10 @@ explainer carries the AI-generated disclaimer; keep it.
 **State (`docs/js/store.js`).** The single source of truth at runtime. Holds
 `stats` (per-question attempts/correct/lastResult), `notes`, `flags` (the user
 marking an AI explanation as possibly wrong, with an optional free-text reason),
-and `history`, persisted to localStorage under `canham_adv_state_v1`. All writes
+`focus` (questions the user marked "I have no idea" — they rotate more often and
+auto-clear after `FOCUS_CLEAR_STREAK` correct answers in a row; `recordAnswer`
+maintains the streak), and `history`, persisted to localStorage under
+`canham_adv_state_v1`. All writes
 go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
 reconcile local and cloud copies with **last-write-wins per record** (by
 `lastSeenAt` / `updatedAt`); history is unioned by id. Flags are local-first
@@ -81,9 +84,12 @@ the previous user's data; the cloud copy is restored on next sign-in. Keep this
 strictly optional — never make core flows depend on it.
 
 **Pure logic.** `quiz.js` builds sessions (randomizes question order *and*
-answer-option order; filters by section and by mode: all/unseen/incorrect).
-`stats.js` aggregates the store's stats into overall and per-section numbers.
-Both take data as arguments and import no DOM/store — keep them that way.
+answer-option order; filters by section and by mode: all/unseen/incorrect/focus).
+It also weights `focus` ("needs practice") questions so they're drawn
+`FOCUS_WEIGHT`× more often (Efraimidis–Spirakis `random^(1/w)` keying in
+`weightedOrder`). `stats.js` aggregates the store's stats into overall and
+per-section numbers. Both take data as arguments and import no DOM/store — keep
+them that way.
 
 **UI (`docs/js/app.js`).** A small view-switching controller (no framework):
 `appState.view` selects a template, `render()` writes `#view.innerHTML`, and a
