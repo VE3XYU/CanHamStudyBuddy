@@ -92,7 +92,7 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-export function recordAnswer(qid, isCorrect) {
+export function recordAnswer(qid, isCorrect, guessed = false) {
   const cur = state.stats[qid] || {
     attempts: 0,
     correct: 0,
@@ -105,11 +105,13 @@ export function recordAnswer(qid, isCorrect) {
     lastResult: isCorrect ? "correct" : "incorrect",
     lastSeenAt: now(),
   };
-  // A "needs practice" question tracks a streak of consecutive correct answers;
-  // a wrong answer resets it, and reaching the threshold auto-clears the mark.
+  // A "needs practice" question tracks a streak of consecutive correct answers.
+  // Only answers the user did NOT flag as a guess count toward mastery — a lucky
+  // guess (correct but flagged) resets the streak just like a wrong answer, so
+  // the mark can't be cleared by guessing. Reaching the threshold clears it.
   const f = state.focus[qid];
   if (f) {
-    if (isCorrect) {
+    if (isCorrect && !guessed) {
       const streak = (f.streak || 0) + 1;
       if (streak >= FOCUS_CLEAR_STREAK) delete state.focus[qid];
       else state.focus[qid] = { streak, updatedAt: now() };

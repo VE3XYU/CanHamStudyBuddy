@@ -211,6 +211,21 @@ check("focus auto-clears after 3 correct in a row and resets on a miss", async (
   assert.equal(store.isFocused(qid), true, "a miss resets the streak, so still marked");
 });
 
+check("a lucky guess (correct but flagged) does not advance the focus streak", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  store.setFocus(qid, true);
+  store.recordAnswer(qid, true, true);  // correct but flagged as a guess
+  store.recordAnswer(qid, true, true);
+  store.recordAnswer(qid, true, true);
+  assert.equal(store.isFocused(qid), true, "three lucky guesses never clear the mark");
+  store.recordAnswer(qid, true);        // correct, not guessed
+  store.recordAnswer(qid, true);
+  store.recordAnswer(qid, true);        // 3rd un-guessed correct clears it
+  assert.equal(store.isFocused(qid), false, "un-guessed corrects still clear it");
+});
+
 check("mergeStates resolves focus marks by last-write-wins", async () => {
   const store = await import("../docs/js/store.js");
   const a = { stats: {}, notes: {}, flags: {}, focus: { q1: { streak: 1, updatedAt: 100 }, q2: { streak: 0, updatedAt: 50 } }, history: [], updatedAt: 100 };

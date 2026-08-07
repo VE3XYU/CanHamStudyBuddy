@@ -268,21 +268,29 @@ function renderQuiz() {
     return `<button class="${cls}" ${attrs}>${escapeHTML(opt)}</button>`;
   }).join("");
 
+  // "I have no idea" is available before answering (so a correct answer while
+  // guessing is flagged as a lucky guess) and stays after. It's per-attempt:
+  // default unchecked each time the question appears, even if it's already on
+  // the needs-practice list — un-guessed correct answers are what clear it.
+  const guessed = !!s.guessed[s.idx];
+  const idkBox = `
+    <label class="idk">
+      <input type="checkbox" data-idk-qid="${escapeHTML(item.id)}" ${guessed ? "checked" : ""}>
+      <span>I have no idea${answered ? " — practice this more" : " — I'm just guessing"}</span>
+    </label>`;
+
   let feedback = "";
   if (answered) {
     const note = escapeHTML(store.getNote(item.id));
-    const focused = store.isFocused(item.id);
     const verdict = ans.correct
-      ? `<div class="verdict ok">Correct</div>`
+      ? (ans.guessed
+          ? `<div class="verdict ok">Correct — but you were guessing, so this stays on your practice list.</div>`
+          : `<div class="verdict ok">Correct</div>`)
       : `<div class="verdict bad">Not quite — the correct answer is highlighted.</div>`;
     const isLast = s.idx + 1 >= total;
     feedback = `
       ${verdict}
       ${explanationBlock(item.id)}
-      <label class="idk">
-        <input type="checkbox" data-idk-qid="${escapeHTML(item.id)}" ${focused ? "checked" : ""}>
-        <span>I have no idea — show this one more often</span>
-      </label>
       <div class="note-block">
         <label class="field">
           <span>Your note for this question <span class="saved" data-saved-for="${escapeHTML(item.id)}"></span></span>
@@ -307,6 +315,7 @@ function renderQuiz() {
       <div class="muted small ctx">${escapeHTML(sessionContext(s.quiz))} · ${escapeHTML(item.id)}</div>
       <h2 class="question">${escapeHTML(item.question)}</h2>
       <div class="options">${options}</div>
+      ${idkBox}
       ${feedback}
     </section>`;
 }
@@ -486,7 +495,7 @@ const TEMPLATES = {
 // --- actions ----------------------------------------------------------------
 function startSession(quiz) {
   if (!quiz.items.length) return;
-  appState.session = { quiz, idx: 0, answers: [], answered: 0, correct: 0 };
+  appState.session = { quiz, idx: 0, answers: [], answered: 0, correct: 0, guessed: {} };
   navigate("quiz");
 }
 
@@ -507,10 +516,11 @@ function answer(optIndex) {
   if (!s || s.answers[s.idx]) return;
   const item = s.quiz.items[s.idx];
   const correct = optIndex === item.correctIndex;
-  s.answers[s.idx] = { selected: optIndex, correct };
+  const guessed = !!s.guessed[s.idx];
+  s.answers[s.idx] = { selected: optIndex, correct, guessed };
   s.answered += 1;
   if (correct) s.correct += 1;
-  store.recordAnswer(item.id, correct);
+  store.recordAnswer(item.id, correct, guessed);
   render();
 }
 
@@ -690,6 +700,10 @@ function onChange(e) {
   const idk = e.target.closest("input[data-idk-qid]");
   if (idk) {
     store.setFocus(idk.dataset.idkQid, idk.checked);
+    // Remember, for this attempt, that the user said they were guessing, so a
+    // correct answer won't count as mastering the question.
+    const s = appState.session;
+    if (s && appState.view === "quiz") s.guessed[s.idx] = idk.checked;
     return;
   }
   const sel = e.target.closest("select[data-setup]");
