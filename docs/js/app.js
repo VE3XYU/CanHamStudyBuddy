@@ -460,7 +460,9 @@ function renderAccount() {
       <h2 class="section-title">Login</h2>
       <div class="card stack">
         <p>Signed in as <strong>${escapeHTML(c.email || "")}</strong>.</p>
-        <p class="muted small">Your notes, scores, and progress sync across your devices automatically.</p>
+        ${c.syncError
+          ? `<p class="error">${escapeHTML(c.error || "Sync error — your data is safe on this device.")}</p>`
+          : `<p class="muted small">Your notes, scores, and progress sync across your devices automatically.</p>`}
         <button class="btn btn-ghost" data-action="signout">Sign out</button>
       </div>
     </section>`;
@@ -734,7 +736,10 @@ function updateSyncChip() {
   const c = cloud.cloudState();
   let text = "On this device";
   let cls = "chip";
-  if (c.enabled && c.signedIn) {
+  if (c.enabled && c.signedIn && c.syncError) {
+    text = "Sync error";
+    cls = "chip chip-bad";
+  } else if (c.enabled && c.signedIn) {
     text = "Synced";
     cls = "chip chip-good";
   } else if (c.enabled) {

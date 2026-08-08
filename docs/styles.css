@@ -92,6 +92,7 @@ body {
 }
 .chip-good { background: var(--good); }
 .chip-warn { background: var(--ok); }
+.chip-bad { background: var(--low); }
 
 .appbar-right { display: flex; align-items: center; gap: 10px; }
 .iconbtn {
