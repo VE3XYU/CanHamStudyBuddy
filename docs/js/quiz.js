@@ -3,12 +3,14 @@
 // answer-option order. The app layer drives progression and records results.
 
 import { shuffle } from "./util.js";
+import { questionStatus, subsectionCode } from "./readiness.js";
 
 export const MODES = {
   all: "All questions",
   unseen: "Only unseen",
   incorrect: "Review my mistakes",
   focus: "Needs practice",
+  smart: "Smartest gains",
 };
 
 // How much more often a "needs practice" question is drawn than an ordinary one.
@@ -27,19 +29,46 @@ export function eligible(questions, { section = "all", mode = "all", stats = {},
     pool = pool.filter((q) => stats[q.id] && stats[q.id].lastResult === "incorrect");
   } else if (mode === "focus") {
     pool = pool.filter((q) => focus[q.id]);
+  } else if (mode === "smart") {
+    // Smartest gains: only questions that don't yet count as mastered — the
+    // ones where exam marks are still on the table.
+    pool = pool.filter((q) => questionStatus(stats[q.id], !!focus[q.id]) !== "mastered");
   }
   return pool;
 }
 
-// Order a pool so "needs practice" questions are FOCUS_WEIGHT× more likely to
-// land near the front (and so be kept when the list is capped to `length`).
-// Uses Efraimidis–Spirakis weighted sampling: key = random^(1/weight). With no
-// focused questions every weight is 1, so this is just a uniform shuffle.
-function weightedOrder(pool, focus = {}) {
+// Weighted shuffle (Efraimidis–Spirakis): key = random^(1/weight), sorted by
+// key descending. Higher-weight questions are more likely to land near the
+// front (and so be kept when the list is capped to `length`). With uniform
+// weights this is just a fair shuffle.
+function weightedOrder(pool, weightOf) {
   return pool
-    .map((q) => ({ q, key: Math.pow(Math.random(), 1 / (focus[q.id] ? FOCUS_WEIGHT : 1)) }))
+    .map((q) => ({ q, key: Math.pow(Math.random(), 1 / weightOf(q)) }))
     .sort((a, b) => b.key - a.key)
     .map((x) => x.q);
+}
+
+// Per-question draw weight for the smartest-gains mode. Every subsection is
+// worth the same 2% on the exam, so the payoff of studying a question is how
+// much of its subsection's weight is still unmastered (the complement of the
+// conservative score — what readiness.js reports as recoverable). Questions
+// from wide-open subsections are drawn far more often than the last stragglers
+// of a nearly mastered one; the needs-practice boost stacks on top. `open` is
+// always > 0 for an unmastered question, so nothing eligible starves.
+function smartWeightOf(questions, stats, focus) {
+  const total = new Map();
+  const mastered = new Map();
+  for (const q of questions) {
+    const code = subsectionCode(q.section, q.sub);
+    total.set(code, (total.get(code) || 0) + 1);
+    if (questionStatus(stats[q.id], !!focus[q.id]) === "mastered")
+      mastered.set(code, (mastered.get(code) || 0) + 1);
+  }
+  return (q) => {
+    const code = subsectionCode(q.section, q.sub);
+    const open = 1 - (mastered.get(code) || 0) / (total.get(code) || 1);
+    return open * (focus[q.id] ? FOCUS_WEIGHT : 1);
+  };
 }
 
 function toItem(q) {
@@ -55,7 +84,12 @@ function toItem(q) {
 }
 
 export function buildQuiz(questions, { section = "all", mode = "all", length = 0, stats = {}, focus = {} } = {}) {
-  let chosen = weightedOrder(eligible(questions, { section, mode, stats, focus }), focus);
+  const pool = eligible(questions, { section, mode, stats, focus });
+  const weightOf =
+    mode === "smart"
+      ? smartWeightOf(questions, stats, focus)
+      : (q) => (focus[q.id] ? FOCUS_WEIGHT : 1);
+  let chosen = weightedOrder(pool, weightOf);
   if (length && length > 0) chosen = chosen.slice(0, length);
   return {
     section,

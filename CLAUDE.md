@@ -87,10 +87,13 @@ the previous user's data; the cloud copy is restored on next sign-in. Keep this
 strictly optional — never make core flows depend on it.
 
 **Pure logic.** `quiz.js` builds sessions (randomizes question order *and*
-answer-option order; filters by section and by mode: all/unseen/incorrect/focus).
+answer-option order; filters by section and by mode:
+all/unseen/incorrect/focus/smart).
 It also weights `focus` ("needs practice") questions so they're drawn
 `FOCUS_WEIGHT`× more often (Efraimidis–Spirakis `random^(1/w)` keying in
-`weightedOrder`). `readiness.js` scores exam readiness the way the
+`weightedOrder`). The smartest-gains mode (`smart`) draws only unmastered
+questions (via `readiness.js`’s `questionStatus`), weighted by the share of
+their subsection’s exam weight still unmastered, with the focus boost on top. `readiness.js` scores exam readiness the way the
 Advanced exam is marked: the exam draws one question from each of the 50
 subsections (A-SSS-BBB), so each subsection is worth 2% and section weights
 follow from their subsection counts (A-001 10%, A-002 24%, A-003 12%, A-004 8%,
