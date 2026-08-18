@@ -3,7 +3,7 @@
 
 import { QUESTIONS } from "./data/questions.js";
 import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "./data/explanations.js";
-import { sectionLabel, sectionCode } from "./data/sections.js";
+import { sectionLabel, sectionShortLabel, sectionCode } from "./data/sections.js";
 import * as store from "./store.js";
 import * as cloud from "./cloud.js";
 import { buildQuiz, buildFromQuestions, eligible, MODES } from "./quiz.js";
@@ -385,7 +385,7 @@ function priorityCell(r) {
 
 const READY_COLUMNS = {
   sections: [
-    { key: "section", label: "Section", val: (r) => r.section, cell: (r) => `<div class="cell-name">${escapeHTML(sectionLabel(r.section))}</div><span class="topic">${r.subCount} subsections</span>` },
+    { key: "section", label: "Section", val: (r) => r.section, cell: (r) => `<div class="cell-name">${escapeHTML(sectionShortLabel(r.section))}</div><span class="topic">${r.subCount} subsections</span>` },
     { key: "mastery", label: "Mastery", num: true, val: (r) => (r.masteryRate === null ? -1 : r.masteryRate), cell: masteryCell },
     { key: "answered", label: "Answered", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
     { key: "weight", label: "Weight", num: true, val: (r) => r.weight, cell: (r) => fmtW(r.weight) },
