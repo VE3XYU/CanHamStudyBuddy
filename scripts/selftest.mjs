@@ -128,6 +128,42 @@ await check("focus mode filters to marked questions; weighting favours them", ()
   assert.ok(markedIn > plainIn, `marked inclusion ${markedIn} should exceed plain ${plainIn}`);
 });
 
+await check("smart mode: only unmastered questions are eligible", () => {
+  const [q0, q1, q2] = QUESTIONS;
+  const stats = {
+    [q0.id]: { attempts: 2, correct: 2, lastResult: "correct", lastSeenAt: 1 },   // mastered
+    [q1.id]: { attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 2 },   // pending (focused)
+    [q2.id]: { attempts: 1, correct: 0, lastResult: "incorrect", lastSeenAt: 3 }, // missed
+  };
+  const focus = { [q1.id]: { streak: 1, updatedAt: 2 } };
+  const pool = eligible(QUESTIONS, { mode: "smart", stats, focus });
+  const ids = new Set(pool.map((q) => q.id));
+  assert.equal(pool.length, QUESTIONS.length - 1, "only the mastered question drops out");
+  assert.ok(!ids.has(q0.id), "mastered is excluded");
+  assert.ok(ids.has(q1.id) && ids.has(q2.id), "pending and missed stay in");
+});
+
+await check("smart mode favours subsections with the most weight left to gain", () => {
+  // Master all but one question of the first subsection; leave the rest of the
+  // bank untouched. The leftover's subsection has little weight to gain, so it
+  // should be drawn far less often than a question from an untouched one.
+  const firstCode = subsectionCode(QUESTIONS[0].section, QUESTIONS[0].sub);
+  const subQs = QUESTIONS.filter((q) => subsectionCode(q.section, q.sub) === firstCode);
+  const leftover = subQs[subQs.length - 1];
+  const stats = {};
+  for (const q of subQs.slice(0, -1)) stats[q.id] = { attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 1 };
+  const other = QUESTIONS.find((q) => subsectionCode(q.section, q.sub) !== firstCode);
+  let leftoverIn = 0;
+  let otherIn = 0;
+  for (let i = 0; i < 500; i++) {
+    const picked = new Set(buildQuiz(QUESTIONS, { mode: "smart", length: 50, stats }).items.map((it) => it.id));
+    if (picked.has(leftover.id)) leftoverIn++;
+    if (picked.has(other.id)) otherIn++;
+    if (picked.has(subQs[0].id)) assert.fail("a mastered question was drawn in smart mode");
+  }
+  assert.ok(otherIn > leftoverIn * 2, `untouched ${otherIn} should dwarf nearly-mastered ${leftoverIn}`);
+});
+
 // --- exam-weighted readiness --------------------------------------------------
 const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} != ${b}`);
 const won = (subQs, extra = {}) => {

@@ -234,7 +234,7 @@ function renderSetup() {
 
   const none = pool === 0;
   const hint = none
-    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : "."}</p>`
+    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : mode === "smart" ? " — nothing left to gain here, it’s all mastered!" : "."}</p>`
     : `<p class="muted small">${pool} question${pool === 1 ? "" : "s"} available with these filters.</p>`;
 
   return `
@@ -385,10 +385,9 @@ function priorityCell(r) {
 
 const READY_COLUMNS = {
   sections: [
-    { key: "section", label: "Section", val: (r) => r.section, cell: (r) => `<div class="cell-name">${escapeHTML(sectionShortLabel(r.section))}</div><span class="topic">${r.subCount} subsections</span>` },
+    { key: "section", label: "Section", val: (r) => r.section, cell: (r) => `<div class="cell-name">${escapeHTML(sectionShortLabel(r.section))}</div><span class="topic">${r.subCount} subsections · ${fmtW(r.weight)} of exam</span>` },
     { key: "mastery", label: "Mastery", num: true, val: (r) => (r.masteryRate === null ? -1 : r.masteryRate), cell: masteryCell },
-    { key: "answered", label: "Answered", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
-    { key: "weight", label: "Weight", num: true, val: (r) => r.weight, cell: (r) => fmtW(r.weight) },
+    { key: "answered", label: "Seen", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
     { key: "earned", label: "Earned", num: true, val: (r) => r.earned, cell: (r) => fmtW(r.earned) },
     { key: "recoverable", label: "To gain", num: true, val: (r) => r.recoverable, cell: (r) => fmtW(r.recoverable) },
     { key: "priority", label: "Priority", num: true, val: (r) => r.priority, cell: priorityCell },
@@ -396,7 +395,7 @@ const READY_COLUMNS = {
   subs: [
     { key: "code", label: "Subsection", val: (r) => r.code, cell: (r) => `<div class="cell-name">${escapeHTML(r.code)}</div><span class="topic">${escapeHTML(SUBSECTION_TOPICS[r.code] || "")}</span>` },
     { key: "mastery", label: "Mastery", num: true, val: (r) => (r.masteryRate === null ? -1 : r.masteryRate), cell: masteryCell },
-    { key: "answered", label: "Answered", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
+    { key: "answered", label: "Seen", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
     { key: "earned", label: "Earned", num: true, val: (r) => r.earned, cell: (r) => fmtW(r.earned) },
     { key: "recoverable", label: "To gain", num: true, val: (r) => r.recoverable, cell: (r) => fmtW(r.recoverable) },
     { key: "priority", label: "Priority", num: true, val: (r) => r.priority, cell: priorityCell },
@@ -461,6 +460,7 @@ function renderStats() {
         </div>
         <p class="muted small">Accuracy counts each question once, by its latest answer. The conservative score also treats every unanswered question as not yet mastered; “to gain” is the exam weight still open to study.</p>
         ${pendingNote}
+        ${o.recoverable > 0 ? `<button class="btn btn-primary btn-block" data-action="study-smart">Study the smartest gains</button>` : ""}
       </div>
 
       <h2 class="section-title">Sections</h2>
@@ -749,6 +749,7 @@ function onClick(e) {
     case "del-note": delNote(el.dataset.qid); break;
     case "study-notes": studyNotes(); break;
     case "study-focus": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "focus" } }); break;
+    case "study-smart": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "smart" } }); break;
     case "flag-expl": flagExpl(el.dataset.qid); break;
     case "unflag-expl": unflagExpl(el.dataset.qid); break;
     case "signup": doAuth("signup"); break;
