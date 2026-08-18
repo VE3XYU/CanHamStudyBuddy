@@ -20,8 +20,15 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
   you're signed in for sync) are reported to the author for review.
 - **Per-question notes** you add after answering — they reappear automatically
   the next time that question comes up, and collect in a Notes tab.
-- **Scores & progress:** coverage and accuracy overall and per section, plus a
-  history of recent sessions.
+- **Exam-weighted readiness score:** the real exam draws one question from
+  each of 50 subsections, so every subsection is worth 2% (sections: A-001 10%,
+  A-002 24%, A-003 12%, A-004 8%, A-005 18%, A-006 10%, A-007 18%). Mastery is
+  judged once per question by your latest answer (re-drilling a question doesn't
+  inflate the score, and a lucky guess doesn't count until confirmed), with
+  accuracy and coverage shown separately, a conservative score that treats
+  unanswered questions as not yet mastered, and a sortable section/subsection
+  table showing where extra study gains the most marks — plus a history of
+  recent sessions.
 - **Local-first:** no account or server needed — your notes, scores, and
   progress live in your browser, with zero setup.
 - **Optional cross-device sync** (Firebase) so your notes/scores/progress
@@ -53,7 +60,8 @@ To put it on your phone, deploy free to **GitHub Pages** (`main` branch,
 - `docs/` — the app (deploy this folder):
   - `js/store.js` — local-first state (stats, notes, history) in localStorage.
   - `js/cloud.js` — optional Firebase sync layered on top.
-  - `js/quiz.js`, `js/stats.js` — pure quiz-building and aggregation logic.
+  - `js/quiz.js`, `js/readiness.js` — pure quiz-building and exam-weighted
+    readiness-scoring logic.
   - `js/app.js` — views, routing, and event wiring.
 - `scripts/selftest.mjs` — `node scripts/selftest.mjs` to test the core logic.
 

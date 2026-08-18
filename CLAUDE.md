@@ -29,7 +29,7 @@ python3 scripts/build_questions.py
 # Regenerate per-question explainers after editing explanations/section-*.json
 python3 scripts/build_explanations.py
 
-# Run the logic tests (dataset integrity, quiz building, stats, state merge)
+# Run the logic tests (dataset integrity, quiz building, readiness scoring, state merge)
 node scripts/selftest.mjs
 
 # Serve locally (ES modules require HTTP, not file://)
@@ -38,7 +38,7 @@ python3 -m http.server 8765 --directory docs   # then http://localhost:8765
 
 There is no linter/test-runner config; `node scripts/selftest.mjs` is the test
 suite. UI behaviour is covered ad hoc — the pure modules (`quiz.js`,
-`stats.js`, `store.js`'s `mergeStates`) are intentionally DOM-free so they can
+`readiness.js`, `store.js`'s `mergeStates`) are intentionally DOM-free so they can
 be unit-tested in Node.
 
 ## Architecture
@@ -90,9 +90,18 @@ strictly optional — never make core flows depend on it.
 answer-option order; filters by section and by mode: all/unseen/incorrect/focus).
 It also weights `focus` ("needs practice") questions so they're drawn
 `FOCUS_WEIGHT`× more often (Efraimidis–Spirakis `random^(1/w)` keying in
-`weightedOrder`). `stats.js` aggregates the store's stats into overall and
-per-section numbers. Both take data as arguments and import no DOM/store — keep
-them that way.
+`weightedOrder`). `readiness.js` scores exam readiness the way the
+Advanced exam is marked: the exam draws one question from each of the 50
+subsections (A-SSS-BBB), so each subsection is worth 2% and section weights
+follow from their subsection counts (A-001 10%, A-002 24%, A-003 12%, A-004 8%,
+A-005 18%, A-006 10%, A-007 18%). Mastery is per unique question by *latest*
+result (repeats don't distort it); a correct answer still on the needs-practice
+list — e.g. a lucky guess — is only "pending" until the store's streak logic
+confirms it. It reports accuracy and coverage separately, an equally weighted
+overall readiness, a conservative score that counts unanswered questions as not
+yet mastered, and per-row recoverable exam weight with study priorities
+(subsection topic labels live in `data/subsections.js`). Both take data as
+arguments and import no DOM/store — keep them that way.
 
 **UI (`docs/js/app.js`).** A small view-switching controller (no framework):
 `appState.view` selects a template, `render()` writes `#view.innerHTML`, and a

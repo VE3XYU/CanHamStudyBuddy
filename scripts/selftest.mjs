@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { QUESTIONS } from "../docs/js/data/questions.js";
 import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "../docs/js/data/explanations.js";
 import { buildQuiz, eligible, buildFromQuestions } from "../docs/js/quiz.js";
-import { computeOverall, computeBySection } from "../docs/js/stats.js";
+import { computeReadiness, subsectionCode, questionStatus } from "../docs/js/readiness.js";
+import { SUBSECTION_TOPICS } from "../docs/js/data/subsections.js";
 import { stableStringify } from "../docs/js/util.js";
 
 let passed = 0;
@@ -125,27 +126,120 @@ check("focus mode filters to marked questions; weighting favours them", () => {
   assert.ok(markedIn > plainIn, `marked inclusion ${markedIn} should exceed plain ${plainIn}`);
 });
 
-// --- stats ------------------------------------------------------------------
-check("overall + per-section stats reconcile", () => {
-  const ids = QUESTIONS.filter((q) => q.section === 1).slice(0, 4).map((q) => q.id);
-  const stats = {
-    [ids[0]]: { attempts: 2, correct: 2, lastResult: "correct", lastSeenAt: 1 },
-    [ids[1]]: { attempts: 2, correct: 1, lastResult: "incorrect", lastSeenAt: 2 },
-  };
-  const overall = computeOverall(QUESTIONS, stats);
-  assert.equal(overall.total, 549);
-  assert.equal(overall.seen, 2);
-  assert.equal(overall.attempts, 4);
-  assert.equal(overall.correct, 3);
-  assert.equal(overall.accuracy, 75);
+// --- exam-weighted readiness --------------------------------------------------
+const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9, `${msg}: ${a} != ${b}`);
+const won = (subQs, extra = {}) => {
+  const stats = {};
+  for (const q of subQs) stats[q.id] = { attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 1 };
+  return Object.assign(stats, extra);
+};
 
-  const bySection = computeBySection(QUESTIONS, stats);
-  const s1 = bySection.find((s) => s.section === 1);
-  assert.equal(s1.total, 54);
-  assert.equal(s1.seen, 2);
-  assert.equal(s1.accuracy, 75);
-  const sumSeen = bySection.reduce((n, s) => n + s.seen, 0);
-  assert.equal(sumSeen, overall.seen);
+check("bank matches the 50-subsection exam blueprint and section weights", () => {
+  const r = computeReadiness(QUESTIONS, {});
+  assert.equal(r.subsections.length, 50, "the exam draws one question from each of 50 subsections");
+  near(r.weight, 0.02, "each subsection worth 2%");
+  const subCounts = {};
+  for (const s of r.sections) subCounts[s.section] = s.subCount;
+  assert.deepEqual(subCounts, { 1: 5, 2: 12, 3: 6, 4: 4, 5: 9, 6: 5, 7: 9 });
+  const SECTION_WEIGHTS = { 1: 0.10, 2: 0.24, 3: 0.12, 4: 0.08, 5: 0.18, 6: 0.10, 7: 0.18 };
+  for (const s of r.sections) near(s.weight, SECTION_WEIGHTS[s.section], `section ${s.section} weight`);
+});
+
+check("every exam subsection has a topic label (and no strays)", () => {
+  const codes = new Set(QUESTIONS.map((q) => subsectionCode(q.section, q.sub)));
+  assert.deepEqual([...Object.keys(SUBSECTION_TOPICS)].sort(), [...codes].sort());
+});
+
+check("empty state scores zero with the full exam weight recoverable", () => {
+  const o = computeReadiness(QUESTIONS, {}).overall;
+  assert.equal(o.answered, 0);
+  assert.equal(o.masteryRate, null, "no accuracy to report yet");
+  near(o.readiness, 0, "readiness");
+  near(o.conservative, 0, "conservative");
+  near(o.coverage, 0, "coverage");
+  near(o.recoverable, 1, "everything is still up for grabs");
+});
+
+check("mastery is per unique question by latest result — repeats don't distort", () => {
+  const subQs = QUESTIONS.filter((q) => q.section === 1 && q.sub === 1);
+  const stats = {
+    // hammered wrong many times, finally correct -> mastered
+    [subQs[0].id]: { attempts: 12, correct: 3, lastResult: "correct", lastSeenAt: 1 },
+    // usually right, but the latest answer was a miss -> not mastered
+    [subQs[1].id]: { attempts: 9, correct: 8, lastResult: "incorrect", lastSeenAt: 2 },
+  };
+  const r = computeReadiness(QUESTIONS, stats);
+  const m = r.subsections.find((s) => s.code === "A-001-001");
+  assert.equal(m.answered, 2);
+  assert.equal(m.mastered, 1);
+  assert.equal(m.missed, 1);
+  near(m.masteryRate, 0.5, "half of the answered questions mastered");
+  near(r.overall.masteryRate, 0.5, "attempt counts don't leak into accuracy");
+});
+
+check("readiness averages all 50 subsections; conservative counts unanswered questions", () => {
+  const full = QUESTIONS.filter((q) => q.section === 1 && q.sub === 1);
+  const partial = QUESTIONS.filter((q) => q.section === 2 && q.sub === 3);
+  const stats = won(full, won([partial[0]]));
+  const r = computeReadiness(QUESTIONS, stats);
+
+  const a = r.subsections.find((s) => s.code === "A-001-001");
+  near(a.score, 1, "fully mastered subsection");
+  near(a.conservative, 1, "no unanswered questions left there");
+  near(a.recoverable, 0, "nothing left to gain there");
+
+  const b = r.subsections.find((s) => s.code === "A-002-003");
+  near(b.score, 1, "accuracy view extrapolates from the one answered question");
+  near(b.conservative, 1 / b.total, "conservative counts the unanswered ones");
+  near(b.recoverable, 0.02 * (1 - 1 / b.total), "most of its 2% is still open");
+
+  near(r.overall.readiness, 0.04, "two subsections at 100% accuracy = 2 × 2%");
+  near(r.overall.conservative, 0.02 + 0.02 / b.total, "conservative only banks confirmed marks");
+  near(r.overall.recoverable, 1 - r.overall.conservative, "recoverable is the complement");
+});
+
+check("section scores roll up from their subsections; weights decompose exactly", () => {
+  const r = computeReadiness(QUESTIONS, won(QUESTIONS.filter((q) => q.section === 4 && q.sub === 2)));
+  const s4 = r.sections.find((s) => s.section === 4);
+  near(s4.score, 1 / 4, "one of A-004's four subsections is mastered");
+  near(s4.earned, 0.02, "worth one subsection of exam weight");
+  near(r.sections.reduce((n, s) => n + s.earned, 0), r.overall.readiness, "sections decompose overall readiness");
+  near(r.subsections.reduce((n, s) => n + s.recoverable, 0), r.overall.recoverable, "subsections decompose recoverable weight");
+});
+
+check("study priority ranks the biggest recoverable exam weight first", () => {
+  const r = computeReadiness(QUESTIONS, won(QUESTIONS.filter((q) => q.section === 1 && q.sub === 1)));
+  const done = r.subsections.find((s) => s.code === "A-001-001");
+  assert.equal(done.priority, 50, "a fully mastered subsection is the last priority");
+  for (const s of r.subsections) {
+    if (s.code !== "A-001-001") assert.ok(s.priority < 50, `${s.code} should outrank the mastered one`);
+  }
+  const most = [...r.sections].sort((x, y) => y.recoverable - x.recoverable)[0];
+  assert.equal(most.priority, 1, "the section with the most recoverable weight is priority 1");
+  assert.equal(most.section, 2, "that's A-002 (24%) when only part of A-001 is done");
+});
+
+check("a lucky guess counts as answered but stays unmastered until confirmed", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id; // in A-001-001
+  store.resetAll();
+  store.setFocus(qid, true);            // "I have no idea" ticked before answering
+  store.recordAnswer(qid, true, true);  // lucky guess: correct but flagged
+  let st = store.getState();
+  assert.equal(questionStatus(st.stats[qid], !!st.focus[qid]), "pending");
+  let m = computeReadiness(QUESTIONS, st.stats, st.focus).subsections.find((s) => s.code === "A-001-001");
+  assert.equal(m.answered, 1);
+  assert.equal(m.mastered, 0, "a guessed answer is not yet mastered");
+  assert.equal(m.pending, 1, "…it's pending confirmation");
+
+  store.recordAnswer(qid, true);        // the existing streak logic confirms it:
+  store.recordAnswer(qid, true);        // three un-guessed correct answers in a row
+  store.recordAnswer(qid, true);        // clear the needs-practice mark
+  st = store.getState();
+  m = computeReadiness(QUESTIONS, st.stats, st.focus).subsections.find((s) => s.code === "A-001-001");
+  assert.equal(m.mastered, 1, "confirmed per the existing focus-streak logic");
+  assert.equal(m.pending, 0);
+  store.resetAll();
 });
 
 // --- store merge (needs the in-memory storage fallback) ---------------------

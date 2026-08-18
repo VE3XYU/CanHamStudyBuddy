@@ -331,3 +331,33 @@ body.quiz-active { padding-bottom: 24px; }
   .appbar h1 { font-size: 1.2rem; }
   .question { font-size: 1.3rem; }
 }
+
+/* ---- readiness tables (Progress view) ---- */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
+.rtable { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.rtable th, .rtable td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; white-space: nowrap; }
+.rtable th.num, .rtable td.num { text-align: right; }
+/* Keep the row label readable while the numeric columns scroll. */
+.rtable th:first-child, .rtable td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; }
+.rtable tbody tr:last-child td { border-bottom: none; }
+.rtable .cell-name { font-weight: 600; }
+.rtable .topic { display: block; white-space: normal; min-width: 130px; max-width: 220px; font-size: .72rem; font-weight: 400; color: var(--muted); }
+.th-sort {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.th-sort.active { color: var(--blue); }
+.pri { font-weight: 700; }
+.pri.low { color: var(--low); }
+.pri.ok { color: var(--ok); }
+.pri.good { color: var(--good); }
