@@ -7,7 +7,8 @@ import { sectionLabel, sectionCode } from "./data/sections.js";
 import * as store from "./store.js";
 import * as cloud from "./cloud.js";
 import { buildQuiz, buildFromQuestions, eligible, MODES } from "./quiz.js";
-import { computeOverall, computeBySection } from "./stats.js";
+import { computeReadiness } from "./readiness.js";
+import { SUBSECTION_TOPICS } from "./data/subsections.js";
 import { escapeHTML, pct } from "./util.js";
 
 // --- precomputed lookups ----------------------------------------------------
@@ -25,6 +26,8 @@ const appState = {
   session: null, // { quiz, idx, answers[], answered, correct }
   lastResult: null,
   authError: "",
+  // Sort state for the Progress view's readiness tables.
+  readinessSort: { sections: { key: "section", dir: 1 }, subs: { key: "priority", dir: 1 } },
 };
 
 const viewEl = () => document.getElementById("view");
@@ -92,6 +95,16 @@ function accuracyKind(p) {
   return "low";
 }
 
+// Readiness fractions (0..1) → display percentages: whole numbers for rates,
+// one decimal for exam-weight slices (a subsection is only ever worth 2.0%).
+function fmtPct(f) {
+  return Math.round((f || 0) * 100) + "%";
+}
+
+function fmtW(f) {
+  return ((f || 0) * 100).toFixed(1) + "%";
+}
+
 // A short, AI-generated study explainer for a question, shown after answering
 // (alongside the user's own note). Returns "" when no explainer exists yet, so
 // it's safe to drop into any view. The AI-generated disclaimer travels with it.
@@ -129,28 +142,26 @@ function explanationBlock(id) {
 
 // --- dashboard --------------------------------------------------------------
 function renderDashboard() {
-  const stats = store.getState().stats;
-  const overall = computeOverall(QUESTIONS, stats);
-  const bySection = computeBySection(QUESTIONS, stats);
-  const history = store.getState().history;
+  const { stats, focus, history } = store.getState();
+  const r = computeReadiness(QUESTIONS, stats, focus);
   const nFocus = store.focusCount();
 
-  const sectionCards = bySection.map((s) => `
+  const sectionCards = r.sections.map((s) => `
     <div class="section-row">
       <div class="section-head">
         <div>
           <div class="section-name">${escapeHTML(sectionLabel(s.section))}</div>
-          <div class="muted small">${sectionCode(s.section)} · ${s.total} questions</div>
+          <div class="muted small">${sectionCode(s.section)} · ${s.total} questions · ${fmtPct(s.weight)} of exam</div>
         </div>
         <button class="btn btn-sm" data-action="study" data-section="${s.section}">Study</button>
       </div>
       <div class="meter-line">
-        <span class="muted small">Seen ${s.seen}/${s.total}</span>
-        ${bar(s.coverage)}
+        <span class="muted small">Seen ${s.answered}/${s.total}</span>
+        ${bar(s.coverage * 100)}
       </div>
       <div class="meter-line">
-        <span class="muted small">Accuracy ${s.attempts ? s.accuracy + "%" : "—"}</span>
-        ${bar(s.accuracy, accuracyKind(s.accuracy))}
+        <span class="muted small">Mastery ${s.masteryRate === null ? "—" : fmtPct(s.masteryRate)}</span>
+        ${bar((s.masteryRate || 0) * 100, accuracyKind(Math.round((s.masteryRate || 0) * 100)))}
       </div>
     </div>`).join("");
 
@@ -177,19 +188,20 @@ function renderDashboard() {
       <div class="card hero">
         <div class="hero-stats">
           <div class="stat">
-            <div class="stat-num">${overall.coverage}%</div>
-            <div class="stat-label">Bank seen</div>
+            <div class="stat-num">${fmtPct(r.overall.readiness)}</div>
+            <div class="stat-label">Readiness</div>
           </div>
           <div class="stat">
-            <div class="stat-num">${overall.attempts ? overall.accuracy + "%" : "—"}</div>
+            <div class="stat-num">${r.overall.masteryRate === null ? "—" : fmtPct(r.overall.masteryRate)}</div>
             <div class="stat-label">Accuracy</div>
           </div>
           <div class="stat">
-            <div class="stat-num">${overall.seen}/${overall.total}</div>
-            <div class="stat-label">Questions</div>
+            <div class="stat-num">${fmtPct(r.overall.coverage)}</div>
+            <div class="stat-label">Bank seen</div>
           </div>
         </div>
-        ${bar(overall.coverage)}
+        ${bar(r.overall.readiness * 100, accuracyKind(Math.round(r.overall.readiness * 100)))}
+        <p class="muted small">Exam-weighted: each of the 50 exam subsections counts 2% · conservative score ${fmtPct(r.overall.conservative)}</p>
         <button class="btn btn-primary btn-block" data-action="study" data-section="all">Start studying</button>
       </div>
       ${recent}
@@ -355,21 +367,74 @@ function renderResults() {
     </section>`;
 }
 
-// --- stats ------------------------------------------------------------------
+// --- stats / readiness -------------------------------------------------------
+// Column definitions for the sortable readiness tables. `val` supplies the
+// sort key; `cell` renders the cell HTML (all dynamic text escaped).
+function masteryCell(r) {
+  const main = r.masteryRate === null ? "—" : fmtPct(r.masteryRate);
+  const pend = r.pending ? ` <span class="muted">+${r.pending}⏳</span>` : "";
+  return `<strong>${main}</strong>${pend}`;
+}
+
+function priorityCell(r) {
+  // Colour by how much of the row's exam weight is still open to study.
+  const open = r.weight ? r.recoverable / r.weight : 0;
+  const kind = open >= 2 / 3 ? "low" : open >= 1 / 3 ? "ok" : "good";
+  return `<span class="pri ${kind}">#${r.priority}</span>`;
+}
+
+const READY_COLUMNS = {
+  sections: [
+    { key: "section", label: "Section", val: (r) => r.section, cell: (r) => `<div class="cell-name">${escapeHTML(sectionLabel(r.section))}</div><span class="topic">${r.subCount} subsections</span>` },
+    { key: "mastery", label: "Mastery", num: true, val: (r) => (r.masteryRate === null ? -1 : r.masteryRate), cell: masteryCell },
+    { key: "answered", label: "Answered", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
+    { key: "weight", label: "Weight", num: true, val: (r) => r.weight, cell: (r) => fmtW(r.weight) },
+    { key: "earned", label: "Earned", num: true, val: (r) => r.earned, cell: (r) => fmtW(r.earned) },
+    { key: "recoverable", label: "To gain", num: true, val: (r) => r.recoverable, cell: (r) => fmtW(r.recoverable) },
+    { key: "priority", label: "Priority", num: true, val: (r) => r.priority, cell: priorityCell },
+  ],
+  subs: [
+    { key: "code", label: "Subsection", val: (r) => r.code, cell: (r) => `<div class="cell-name">${escapeHTML(r.code)}</div><span class="topic">${escapeHTML(SUBSECTION_TOPICS[r.code] || "")}</span>` },
+    { key: "mastery", label: "Mastery", num: true, val: (r) => (r.masteryRate === null ? -1 : r.masteryRate), cell: masteryCell },
+    { key: "answered", label: "Answered", num: true, val: (r) => r.answered, cell: (r) => `${r.answered}/${r.total}` },
+    { key: "earned", label: "Earned", num: true, val: (r) => r.earned, cell: (r) => fmtW(r.earned) },
+    { key: "recoverable", label: "To gain", num: true, val: (r) => r.recoverable, cell: (r) => fmtW(r.recoverable) },
+    { key: "priority", label: "Priority", num: true, val: (r) => r.priority, cell: priorityCell },
+  ],
+};
+
+function readyTable(tbl, rows) {
+  const sort = appState.readinessSort[tbl];
+  const cols = READY_COLUMNS[tbl];
+  const col = cols.find((c) => c.key === sort.key) || cols[0];
+  const sorted = [...rows].sort((a, b) => {
+    const va = col.val(a);
+    const vb = col.val(b);
+    const d = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return d * sort.dir || a.section - b.section || (a.sub || 0) - (b.sub || 0);
+  });
+  const head = cols.map((c) =>
+    `<th${c.num ? ' class="num"' : ""}><button class="th-sort${c.key === sort.key ? " active" : ""}" data-action="sort-ready" data-tbl="${tbl}" data-key="${c.key}">${c.label}${c.key === sort.key ? (sort.dir === 1 ? " ▲" : " ▼") : ""}</button></th>`).join("");
+  const body = sorted.map((r) =>
+    `<tr>${cols.map((c) => `<td${c.num ? ' class="num"' : ""}>${c.cell(r)}</td>`).join("")}</tr>`).join("");
+  return `<div class="table-wrap"><table class="rtable"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function sortReady(tbl, key) {
+  const cur = appState.readinessSort[tbl];
+  if (!cur || !READY_COLUMNS[tbl].some((c) => c.key === key)) return;
+  appState.readinessSort[tbl] = cur.key === key ? { key, dir: -cur.dir } : { key, dir: 1 };
+  render();
+}
+
 function renderStats() {
   const state = store.getState();
-  const overall = computeOverall(QUESTIONS, state.stats);
-  const bySection = computeBySection(QUESTIONS, state.stats);
+  const r = computeReadiness(QUESTIONS, state.stats, state.focus);
+  const o = r.overall;
 
-  const rows = bySection.map((s) => `
-    <div class="section-row">
-      <div class="section-head">
-        <div class="section-name">${escapeHTML(sectionLabel(s.section))}</div>
-        <div class="muted small">${s.attempts ? s.accuracy + "% · " : ""}seen ${s.seen}/${s.total}</div>
-      </div>
-      ${bar(s.coverage)}
-      ${bar(s.accuracy, accuracyKind(s.accuracy))}
-    </div>`).join("");
+  const pendingNote = o.pending
+    ? `<p class="muted small">⏳ ${o.pending} correct answer${o.pending === 1 ? "" : "s"} (e.g. lucky guesses) ${o.pending === 1 ? "is" : "are"} still on your needs-practice list — counted as answered, but not mastered until confirmed by 3 un-guessed correct answers in a row.</p>`
+    : "";
 
   const history = state.history.slice(0, 15).map((h) => `
     <div class="hist-row">
@@ -382,13 +447,31 @@ function renderStats() {
     <section class="stack">
       <h2 class="section-title">Your progress</h2>
       <div class="card hero">
+        <div class="big-score ${accuracyKind(Math.round(o.readiness * 100))}">${fmtPct(o.readiness)}</div>
+        <p class="muted">Exam-weighted readiness — the exam draws one question from each of the 50 subsections, so every subsection counts 2%.</p>
         <div class="hero-stats">
-          <div class="stat"><div class="stat-num">${overall.coverage}%</div><div class="stat-label">Bank seen</div></div>
-          <div class="stat"><div class="stat-num">${overall.attempts ? overall.accuracy + "%" : "—"}</div><div class="stat-label">Accuracy</div></div>
-          <div class="stat"><div class="stat-num">${overall.attempts}</div><div class="stat-label">Answers logged</div></div>
+          <div class="stat"><div class="stat-num">${o.masteryRate === null ? "—" : fmtPct(o.masteryRate)}</div><div class="stat-label">Accuracy</div></div>
+          <div class="stat"><div class="stat-num">${fmtPct(o.coverage)}</div><div class="stat-label">Bank seen</div></div>
+          <div class="stat"><div class="stat-num">${fmtPct(o.conservative)}</div><div class="stat-label">Conservative</div></div>
         </div>
+        <div class="hero-stats">
+          <div class="stat"><div class="stat-num">${fmtW(o.recoverable)}</div><div class="stat-label">To gain</div></div>
+          <div class="stat"><div class="stat-num">${o.subsectionsStarted}/${o.subsectionCount}</div><div class="stat-label">Subsections</div></div>
+          <div class="stat"><div class="stat-num">${o.attempts}</div><div class="stat-label">Answers logged</div></div>
+        </div>
+        <p class="muted small">Accuracy counts each question once, by its latest answer. The conservative score also treats every unanswered question as not yet mastered; “to gain” is the exam weight still open to study.</p>
+        ${pendingNote}
       </div>
-      <div class="card stack">${rows}</div>
+
+      <h2 class="section-title">Sections</h2>
+      <div class="card">${readyTable("sections", r.sections)}</div>
+
+      <h2 class="section-title">Subsections</h2>
+      <div class="card">
+        ${readyTable("subs", r.subsections)}
+        <p class="muted small">Each subsection is worth 2.0% of the exam. Priority ranks where extra study gains the most marks — tap any column heading to sort.</p>
+      </div>
+
       <h2 class="section-title">Recent sessions</h2>
       <div class="card">${history || `<p class="empty">No quizzes yet.</p>`}</div>
       <button class="btn btn-danger btn-block" data-action="reset">Reset all progress</button>
@@ -662,6 +745,7 @@ function onClick(e) {
     case "new-quiz": navigate("setup"); break;
     case "home": navigate("dashboard"); break;
     case "reset": resetProgress(); break;
+    case "sort-ready": sortReady(el.dataset.tbl, el.dataset.key); break;
     case "del-note": delNote(el.dataset.qid); break;
     case "study-notes": studyNotes(); break;
     case "study-focus": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "focus" } }); break;
