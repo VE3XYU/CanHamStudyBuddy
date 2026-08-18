@@ -10,18 +10,20 @@ import { SUBSECTION_TOPICS } from "../docs/js/data/subsections.js";
 import { stableStringify } from "../docs/js/util.js";
 
 let passed = 0;
-function check(name, fn) {
-  fn();
+// Await fn() so async checks (dynamic store imports) report failures in place
+// instead of printing "ok" — and the final summary — before their assertions run.
+async function check(name, fn) {
+  await fn();
   passed += 1;
   console.log(`  ok  ${name}`);
 }
 
 // --- dataset integrity ------------------------------------------------------
-check("dataset loaded with 549 questions", () => {
+await check("dataset loaded with 549 questions", () => {
   assert.equal(QUESTIONS.length, 549);
 });
 
-check("every question has 4 distinct options and required fields", () => {
+await check("every question has 4 distinct options and required fields", () => {
   for (const q of QUESTIONS) {
     assert.ok(q.id && q.q && q.correct, `missing fields on ${q.id}`);
     assert.equal(q.wrong.length, 3, `expected 3 wrong answers on ${q.id}`);
@@ -32,7 +34,7 @@ check("every question has 4 distinct options and required fields", () => {
 });
 
 // --- explainers -------------------------------------------------------------
-check("explainers reference only real questions and are non-empty", () => {
+await check("explainers reference only real questions and are non-empty", () => {
   const ids = new Set(QUESTIONS.map((q) => q.id));
   const keys = Object.keys(EXPLANATIONS);
   assert.ok(keys.length > 0, "no explainers loaded");
@@ -45,7 +47,7 @@ check("explainers reference only real questions and are non-empty", () => {
   console.log(`      (${covered}/${QUESTIONS.length} questions have an explainer)`);
 });
 
-check("explainers stay concise", () => {
+await check("explainers stay concise", () => {
   // Length proxy for the "at most ~5 sentences" guideline — a runaway entry
   // (e.g. a duplicated paragraph) trips this well before it reaches the user.
   for (const [id, text] of Object.entries(EXPLANATIONS)) {
@@ -53,13 +55,13 @@ check("explainers stay concise", () => {
   }
 });
 
-check("the AI-generated disclaimer is present", () => {
+await check("the AI-generated disclaimer is present", () => {
   assert.equal(typeof EXPLANATIONS_DISCLAIMER, "string");
   assert.ok(/AI-generated/i.test(EXPLANATIONS_DISCLAIMER), "disclaimer should mention it's AI-generated");
 });
 
 // --- quiz construction ------------------------------------------------------
-check("buildQuiz randomizes options but correctIndex points at the answer", () => {
+await check("buildQuiz randomizes options but correctIndex points at the answer", () => {
   const quiz = buildQuiz(QUESTIONS, { section: "all", mode: "all" });
   assert.equal(quiz.items.length, 549);
   for (const item of quiz.items) {
@@ -68,18 +70,18 @@ check("buildQuiz randomizes options but correctIndex points at the answer", () =
   }
 });
 
-check("section filter only returns questions from that section", () => {
+await check("section filter only returns questions from that section", () => {
   const quiz = buildQuiz(QUESTIONS, { section: 2, mode: "all" });
   assert.equal(quiz.items.length, 132);
   assert.ok(quiz.items.every((i) => i.section === 2));
 });
 
-check("length caps the number of questions", () => {
+await check("length caps the number of questions", () => {
   const quiz = buildQuiz(QUESTIONS, { section: "all", mode: "all", length: 10 });
   assert.equal(quiz.items.length, 10);
 });
 
-check("answer options actually get shuffled across the bank", () => {
+await check("answer options actually get shuffled across the bank", () => {
   // The source always lists the correct answer first; after shuffling, the
   // correct index should land in varied positions, not always 0.
   const quiz = buildQuiz(QUESTIONS, { section: "all", mode: "all" });
@@ -87,7 +89,7 @@ check("answer options actually get shuffled across the bank", () => {
   assert.ok(positions.size > 1, "correct answer never moved from position 0");
 });
 
-check("unseen vs incorrect modes filter by stats", () => {
+await check("unseen vs incorrect modes filter by stats", () => {
   const sample = QUESTIONS.slice(0, 5).map((q) => q.id);
   const stats = {
     [sample[0]]: { attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 1 },
@@ -99,14 +101,14 @@ check("unseen vs incorrect modes filter by stats", () => {
   assert.deepEqual(wrong.map((q) => q.id), [sample[1]]);
 });
 
-check("buildFromQuestions wraps an explicit list", () => {
+await check("buildFromQuestions wraps an explicit list", () => {
   const list = QUESTIONS.slice(0, 3);
   const quiz = buildFromQuestions(list);
   assert.equal(quiz.items.length, 3);
   assert.equal(quiz.mode, "retry");
 });
 
-check("focus mode filters to marked questions; weighting favours them", () => {
+await check("focus mode filters to marked questions; weighting favours them", () => {
   const ids = QUESTIONS.slice(0, 2).map((q) => q.id);
   const focus = { [ids[0]]: { streak: 0, updatedAt: 1 }, [ids[1]]: { streak: 0, updatedAt: 1 } };
 
@@ -134,7 +136,7 @@ const won = (subQs, extra = {}) => {
   return Object.assign(stats, extra);
 };
 
-check("bank matches the 50-subsection exam blueprint and section weights", () => {
+await check("bank matches the 50-subsection exam blueprint and section weights", () => {
   const r = computeReadiness(QUESTIONS, {});
   assert.equal(r.subsections.length, 50, "the exam draws one question from each of 50 subsections");
   near(r.weight, 0.02, "each subsection worth 2%");
@@ -145,12 +147,12 @@ check("bank matches the 50-subsection exam blueprint and section weights", () =>
   for (const s of r.sections) near(s.weight, SECTION_WEIGHTS[s.section], `section ${s.section} weight`);
 });
 
-check("every exam subsection has a topic label (and no strays)", () => {
+await check("every exam subsection has a topic label (and no strays)", () => {
   const codes = new Set(QUESTIONS.map((q) => subsectionCode(q.section, q.sub)));
   assert.deepEqual([...Object.keys(SUBSECTION_TOPICS)].sort(), [...codes].sort());
 });
 
-check("empty state scores zero with the full exam weight recoverable", () => {
+await check("empty state scores zero with the full exam weight recoverable", () => {
   const o = computeReadiness(QUESTIONS, {}).overall;
   assert.equal(o.answered, 0);
   assert.equal(o.masteryRate, null, "no accuracy to report yet");
@@ -160,7 +162,7 @@ check("empty state scores zero with the full exam weight recoverable", () => {
   near(o.recoverable, 1, "everything is still up for grabs");
 });
 
-check("mastery is per unique question by latest result — repeats don't distort", () => {
+await check("mastery is per unique question by latest result — repeats don't distort", () => {
   const subQs = QUESTIONS.filter((q) => q.section === 1 && q.sub === 1);
   const stats = {
     // hammered wrong many times, finally correct -> mastered
@@ -177,7 +179,7 @@ check("mastery is per unique question by latest result — repeats don't distort
   near(r.overall.masteryRate, 0.5, "attempt counts don't leak into accuracy");
 });
 
-check("readiness averages all 50 subsections; conservative counts unanswered questions", () => {
+await check("readiness averages all 50 subsections; conservative counts unanswered questions", () => {
   const full = QUESTIONS.filter((q) => q.section === 1 && q.sub === 1);
   const partial = QUESTIONS.filter((q) => q.section === 2 && q.sub === 3);
   const stats = won(full, won([partial[0]]));
@@ -198,7 +200,7 @@ check("readiness averages all 50 subsections; conservative counts unanswered que
   near(r.overall.recoverable, 1 - r.overall.conservative, "recoverable is the complement");
 });
 
-check("section scores roll up from their subsections; weights decompose exactly", () => {
+await check("section scores roll up from their subsections; weights decompose exactly", () => {
   const r = computeReadiness(QUESTIONS, won(QUESTIONS.filter((q) => q.section === 4 && q.sub === 2)));
   const s4 = r.sections.find((s) => s.section === 4);
   near(s4.score, 1 / 4, "one of A-004's four subsections is mastered");
@@ -207,7 +209,7 @@ check("section scores roll up from their subsections; weights decompose exactly"
   near(r.subsections.reduce((n, s) => n + s.recoverable, 0), r.overall.recoverable, "subsections decompose recoverable weight");
 });
 
-check("study priority ranks the biggest recoverable exam weight first", () => {
+await check("study priority ranks the biggest recoverable exam weight first", () => {
   const r = computeReadiness(QUESTIONS, won(QUESTIONS.filter((q) => q.section === 1 && q.sub === 1)));
   const done = r.subsections.find((s) => s.code === "A-001-001");
   assert.equal(done.priority, 50, "a fully mastered subsection is the last priority");
@@ -219,7 +221,7 @@ check("study priority ranks the biggest recoverable exam weight first", () => {
   assert.equal(most.section, 2, "that's A-002 (24%) when only part of A-001 is done");
 });
 
-check("a lucky guess counts as answered but stays unmastered until confirmed", async () => {
+await check("a lucky guess counts as answered but stays unmastered until confirmed", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id; // in A-001-001
   store.resetAll();
@@ -243,7 +245,7 @@ check("a lucky guess counts as answered but stays unmastered until confirmed", a
 });
 
 // --- store merge (needs the in-memory storage fallback) ---------------------
-check("mergeStates resolves notes and stats by last-write-wins", async () => {
+await check("mergeStates resolves notes and stats by last-write-wins", async () => {
   const store = await import("../docs/js/store.js");
   const a = {
     v: 1,
@@ -265,7 +267,7 @@ check("mergeStates resolves notes and stats by last-write-wins", async () => {
   assert.equal(merged.history.length, 2, "history deduped by id");
 });
 
-check("setFlagged stores, trims, and clears an explanation flag", async () => {
+await check("setFlagged stores, trims, and clears an explanation flag", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id;
   store.resetAll();
@@ -276,7 +278,7 @@ check("setFlagged stores, trims, and clears an explanation flag", async () => {
   assert.equal(store.getFlag(qid), null, "unflagging removes the record");
 });
 
-check("mergeStates resolves explanation flags by last-write-wins", async () => {
+await check("mergeStates resolves explanation flags by last-write-wins", async () => {
   const store = await import("../docs/js/store.js");
   const a = { stats: {}, notes: {}, flags: { q1: { reason: "old", updatedAt: 100 }, q2: { reason: "keep", updatedAt: 50 } }, history: [], updatedAt: 100 };
   const b = { stats: {}, notes: {}, flags: { q1: { reason: "new", updatedAt: 200 } }, history: [], updatedAt: 200 };
@@ -285,7 +287,7 @@ check("mergeStates resolves explanation flags by last-write-wins", async () => {
   assert.equal(merged.flags.q2.reason, "keep", "non-conflicting flag retained");
 });
 
-check("focus auto-clears after 3 correct in a row and resets on a miss", async () => {
+await check("focus auto-clears after 3 correct in a row and resets on a miss", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id;
   store.resetAll();
@@ -305,7 +307,7 @@ check("focus auto-clears after 3 correct in a row and resets on a miss", async (
   assert.equal(store.isFocused(qid), true, "a miss resets the streak, so still marked");
 });
 
-check("a lucky guess (correct but flagged) does not advance the focus streak", async () => {
+await check("a lucky guess (correct but flagged) does not advance the focus streak", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id;
   store.resetAll();
@@ -320,7 +322,7 @@ check("a lucky guess (correct but flagged) does not advance the focus streak", a
   assert.equal(store.isFocused(qid), false, "un-guessed corrects still clear it");
 });
 
-check("mergeStates resolves focus marks by last-write-wins", async () => {
+await check("mergeStates resolves focus marks by last-write-wins", async () => {
   const store = await import("../docs/js/store.js");
   const a = { stats: {}, notes: {}, flags: {}, focus: { q1: { streak: 1, updatedAt: 100 }, q2: { streak: 0, updatedAt: 50 } }, history: [], updatedAt: 100 };
   const b = { stats: {}, notes: {}, flags: {}, focus: { q1: { streak: 2, updatedAt: 200 } }, history: [], updatedAt: 200 };
@@ -329,14 +331,14 @@ check("mergeStates resolves focus marks by last-write-wins", async () => {
   assert.equal(merged.focus.q2.streak, 0, "non-conflicting focus mark retained");
 });
 
-check("stableStringify ignores key order but not content or array order", () => {
+await check("stableStringify ignores key order but not content or array order", () => {
   assert.equal(stableStringify({ a: 1, b: 2 }), stableStringify({ b: 2, a: 1 }));
   assert.equal(stableStringify({ x: { p: 1, q: 2 } }), stableStringify({ x: { q: 2, p: 1 } }));
   assert.notEqual(stableStringify({ a: 1 }), stableStringify({ a: 2 }));
   assert.notEqual(stableStringify([1, 2]), stableStringify([2, 1]));
 });
 
-check("mergeRemote: identical remote is a no-op, real differences are detected", async () => {
+await check("mergeRemote: identical remote is a no-op, real differences are detected", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id;
   store.resetAll();
