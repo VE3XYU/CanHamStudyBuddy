@@ -341,6 +341,7 @@ body.quiz-active { padding-bottom: 24px; }
 .rtable th:first-child, .rtable td:first-child { position: sticky; left: 0; background: var(--card); z-index: 1; }
 .rtable tbody tr:last-child td { border-bottom: none; }
 .rtable .cell-name { font-weight: 600; }
+.rtable .cell-sub { display: block; font-size: .62rem; font-weight: 600; color: var(--ok); }
 .rtable .topic { display: block; white-space: normal; min-width: 92px; max-width: 170px; font-size: .68rem; font-weight: 400; color: var(--muted); }
 .th-sort {
   appearance: none;

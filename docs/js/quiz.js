@@ -3,7 +3,7 @@
 // answer-option order. The app layer drives progression and records results.
 
 import { shuffle } from "./util.js";
-import { questionStatus, subsectionCode } from "./readiness.js";
+import { questionStatus, subsectionCode, isStale, masteryCredit } from "./readiness.js";
 
 export const MODES = {
   all: "All questions",
@@ -11,13 +11,14 @@ export const MODES = {
   incorrect: "Review my mistakes",
   focus: "Needs practice",
   smart: "Smartest gains",
+  stale: "Refresh older material",
 };
 
 // How much more often a "needs practice" question is drawn than an ordinary one.
 export const FOCUS_WEIGHT = 3;
 
 // Questions eligible for a quiz given the section + mode filters.
-export function eligible(questions, { section = "all", mode = "all", stats = {}, focus = {} } = {}) {
+export function eligible(questions, { section = "all", mode = "all", stats = {}, focus = {}, now = Date.now() } = {}) {
   let pool =
     section === "all"
       ? questions
@@ -31,8 +32,17 @@ export function eligible(questions, { section = "all", mode = "all", stats = {},
     pool = pool.filter((q) => focus[q.id]);
   } else if (mode === "smart") {
     // Smartest gains: only questions that don't yet count as mastered — the
-    // ones where exam marks are still on the table.
+    // ones where exam marks are still on the table. Deliberately staleness-
+    // blind: staleness is spread evenly across subsections, so folding it in
+    // here would flatten the between-subsection weighting that makes this mode
+    // work, and would crowd out never-seen material. Refreshing old answers is
+    // the separate "stale" mode below.
     pool = pool.filter((q) => questionStatus(stats[q.id], !!focus[q.id]) !== "mastered");
+  } else if (mode === "stale") {
+    // Refresh older material: mastered answers that have aged past the fresh
+    // window, oldest weighted heaviest.
+    pool = pool.filter((q) =>
+      questionStatus(stats[q.id], !!focus[q.id]) === "mastered" && isStale(stats[q.id], now));
   }
   return pool;
 }
@@ -83,12 +93,16 @@ function toItem(q) {
   };
 }
 
-export function buildQuiz(questions, { section = "all", mode = "all", length = 0, stats = {}, focus = {} } = {}) {
-  const pool = eligible(questions, { section, mode, stats, focus });
+export function buildQuiz(questions, { section = "all", mode = "all", length = 0, stats = {}, focus = {}, now = Date.now() } = {}) {
+  const pool = eligible(questions, { section, mode, stats, focus, now });
   const weightOf =
     mode === "smart"
       ? smartWeightOf(questions, stats, focus)
-      : (q) => (focus[q.id] ? FOCUS_WEIGHT : 1);
+      // In the refresh mode the oldest answers matter most: 1/credit draws a
+      // long-cold question (0.25) twice as often as a merely stale one (0.5).
+      : mode === "stale"
+        ? (q) => 1 / masteryCredit(stats[q.id], now)
+        : (q) => (focus[q.id] ? FOCUS_WEIGHT : 1);
   let chosen = weightedOrder(pool, weightOf);
   if (length && length > 0) chosen = chosen.slice(0, length);
   return {

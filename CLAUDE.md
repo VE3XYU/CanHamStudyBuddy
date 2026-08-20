@@ -88,12 +88,17 @@ strictly optional — never make core flows depend on it.
 
 **Pure logic.** `quiz.js` builds sessions (randomizes question order *and*
 answer-option order; filters by section and by mode:
-all/unseen/incorrect/focus/smart).
+all/unseen/incorrect/focus/smart/stale).
 It also weights `focus` ("needs practice") questions so they're drawn
 `FOCUS_WEIGHT`× more often (Efraimidis–Spirakis `random^(1/w)` keying in
 `weightedOrder`). The smartest-gains mode (`smart`) draws only unmastered
 questions (via `readiness.js`’s `questionStatus`), weighted by the share of
-their subsection’s exam weight still unmastered, with the focus boost on top. `readiness.js` scores exam readiness the way the
+their subsection’s exam weight still unmastered, with the focus boost on top.
+The `stale` mode ("Refresh older material") draws mastered answers that have aged
+past the fresh window, oldest weighted heaviest. Smart mode is deliberately
+staleness-blind: staleness is spread evenly across subsections, so folding it in
+would flatten smart mode's between-subsection weighting and crowd out never-seen
+material. `readiness.js` scores exam readiness the way the
 Advanced exam is marked: the exam draws one question from each of the 50
 subsections (A-SSS-BBB), so each subsection is worth 2% and section weights
 follow from their subsection counts (A-001 10%, A-002 24%, A-003 12%, A-004 8%,
@@ -103,7 +108,22 @@ list — e.g. a lucky guess — is only "pending" until the store's streak logic
 confirms it. It reports accuracy and coverage separately, an equally weighted
 overall readiness, a conservative score that counts unanswered questions as not
 yet mastered, and per-row recoverable exam weight with study priorities
-(subsection topic labels live in `data/subsections.js`). Both take data as
+(subsection topic labels live in `data/subsections.js`). **Freshness:** a correct
+answer counts fully for `MASTERY_FRESH_DAYS` (21), then at `STALE_CREDIT` (0.8),
+then at `COLD_CREDIT` (0.6) past 3× the window — always above the 0.25 a 4-option
+question returns by guessing, and never 0 (only a wrong answer scores 0). Staleness is an *overlay* on `mastered`,
+never a sibling status: it must not touch `questionStatus`, `masteryRate`
+("Accuracy" in the UI), `score`, `conservative` or `recoverable`, all of which
+keep their exact meanings. It feeds only the additive `freshScore` /
+`freshReadiness` figures (shown as "today") and the `stale` counters. Timestamps
+are defensive: missing/NaN/zero counts as maximally old, a future one (clock skew
+from a synced device) as brand new, but only within a day's grace, so a device
+with a badly-set clock cannot pin a question as permanently fresh. Note that
+refreshing a stale answer can only restore `freshReadiness` — it never raises
+`readiness`/`conservative`/`recoverable`, and lowers them if the retest is wrong
+— so the UI gives the refresh queue the primary button only when `recoverable`
+is under 10%. `computeReadiness(..., now)` takes the clock
+as an argument so tests are deterministic. Both take data as
 arguments and import no DOM/store — keep them that way.
 
 **UI (`docs/js/app.js`).** A small view-switching controller (no framework):
