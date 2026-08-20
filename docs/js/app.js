@@ -192,6 +192,7 @@ function renderDashboard() {
       <div class="card-title">Needs practice</div>
       <p class="muted small">${nFocus} question${nFocus === 1 ? "" : "s"} you marked “I have no idea” — these come up more often, and drop off after 3 correct in a row.</p>
       <button class="btn btn-primary btn-block" data-action="study-focus">Practice ${nFocus === 1 ? "it" : "them"}</button>
+      <button class="btn btn-sm btn-ghost" data-action="clear-focus">Clear the list</button>
     </div>` : "";
 
   const nDue = r.overall.stale;
@@ -514,8 +515,8 @@ function questionMeta(id) {
 
 function renderNotes() {
   const state = store.getState();
-  const noteIds = Object.keys(state.notes).sort();
-  const flagIds = Object.keys(state.flags).sort();
+  const noteIds = store.noteIds().sort();
+  const flagIds = store.flagIds().sort();
 
   if (!noteIds.length && !flagIds.length) {
     return `<section class="stack"><h2 class="section-title">Notes &amp; flags</h2>
@@ -707,9 +708,18 @@ function retryMistakes() {
 }
 
 function studyNotes() {
-  const ids = Object.keys(store.getState().notes);
+  const ids = store.noteIds();
   const qs = ids.map((id) => QMAP.get(id)).filter(Boolean);
   if (qs.length) startSession(buildFromQuestions(qs));
+}
+
+function clearFocusList() {
+  const n = store.focusCount();
+  if (!n) return;
+  if (window.confirm(`Clear all ${n} “I have no idea” mark${n === 1 ? "" : "s"}? Your scores, notes and answers are untouched.`)) {
+    store.clearAllFocus();
+    render();
+  }
 }
 
 function resetProgress() {
@@ -775,6 +785,7 @@ function onClick(e) {
     case "del-note": delNote(el.dataset.qid); break;
     case "study-notes": studyNotes(); break;
     case "study-focus": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "focus" } }); break;
+    case "clear-focus": clearFocusList(); break;
     case "study-smart": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "smart" } }); break;
     case "study-stale": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "stale" } }); break;
     case "flag-expl": flagExpl(el.dataset.qid); break;

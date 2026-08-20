@@ -5,6 +5,21 @@
 
 import { uid, stableStringify } from "./util.js";
 
+// Deleting a record outright cannot survive sync: mergeStates keeps whatever
+// exists on either side, and an absence carries no timestamp to compare, so a
+// peer still holding the old record silently resurrects it everywhere. So a
+// "delete" writes a tombstone — the record stays, marked `cleared` with a fresh
+// `updatedAt` — and every reader treats a cleared record as absent. Newest wins
+// then works in both directions.
+function tombstone() {
+  return { cleared: true, updatedAt: now() };
+}
+
+// True when a record exists and has not been cleared.
+export function isLive(rec) {
+  return !!rec && !rec.cleared;
+}
+
 const KEY = "canham_adv_state_v1";
 const HISTORY_CAP = 200;
 const STATE_VERSION = 1;
@@ -33,8 +48,15 @@ const storage = (() => {
   };
 })();
 
+// Monotonic: two writes in the same millisecond would otherwise carry equal
+// `updatedAt`, and mergeStates resolves ties in favour of whichever side it
+// happens to read first — so clearing a record and re-marking it in quick
+// succession could resolve backwards. Never goes backwards, and only ever runs
+// ahead of the wall clock by one ms per write in a burst.
+let lastStamp = 0;
 function now() {
-  return Date.now();
+  lastStamp = Math.max(Date.now(), lastStamp + 1);
+  return lastStamp;
 }
 
 function emptyState() {
@@ -109,11 +131,11 @@ export function recordAnswer(qid, isCorrect, guessed = false) {
   // Only answers the user did NOT flag as a guess count toward mastery — a lucky
   // guess (correct but flagged) resets the streak just like a wrong answer, so
   // the mark can't be cleared by guessing. Reaching the threshold clears it.
-  const f = state.focus[qid];
+  const f = isLive(state.focus[qid]) ? state.focus[qid] : null;
   if (f) {
     if (isCorrect && !guessed) {
       const streak = (f.streak || 0) + 1;
-      if (streak >= FOCUS_CLEAR_STREAK) delete state.focus[qid];
+      if (streak >= FOCUS_CLEAR_STREAK) state.focus[qid] = tombstone();
       else state.focus[qid] = { streak, updatedAt: now() };
     } else {
       state.focus[qid] = { streak: 0, updatedAt: now() };
@@ -123,17 +145,22 @@ export function recordAnswer(qid, isCorrect, guessed = false) {
 }
 
 export function getNote(qid) {
-  return state.notes[qid] ? state.notes[qid].text : "";
+  return isLive(state.notes[qid]) ? state.notes[qid].text : "";
+}
+
+// Ids of notes that still exist (tombstones excluded).
+export function noteIds() {
+  return Object.keys(state.notes).filter((id) => isLive(state.notes[id]));
 }
 
 export function setNote(qid, text) {
   const trimmed = (text || "").trim();
   if (!trimmed) {
-    if (!state.notes[qid]) return; // nothing to change
-    delete state.notes[qid];
+    if (!isLive(state.notes[qid])) return; // nothing to change
+    state.notes[qid] = tombstone();
   } else {
     const existing = state.notes[qid];
-    if (existing && existing.text === trimmed) return; // unchanged
+    if (isLive(existing) && existing.text === trimmed) return; // unchanged
     state.notes[qid] = { text: trimmed, updatedAt: now() };
   }
   write();
@@ -143,14 +170,19 @@ export function setNote(qid, text) {
 // an optional free-text reason. Local-first like notes — the presence of a
 // record means "flagged"; clearing it removes the record.
 export function getFlag(qid) {
-  return state.flags[qid] || null;
+  return isLive(state.flags[qid]) ? state.flags[qid] : null;
+}
+
+// Ids of explanation flags that are still raised (tombstones excluded).
+export function flagIds() {
+  return Object.keys(state.flags).filter((id) => isLive(state.flags[id]));
 }
 
 export function setFlagged(qid, flagged, reason = "") {
-  const existing = state.flags[qid];
+  const existing = isLive(state.flags[qid]) ? state.flags[qid] : null;
   if (!flagged) {
     if (!existing) return; // nothing to change
-    delete state.flags[qid];
+    state.flags[qid] = tombstone();
   } else {
     const r = (reason || "").trim();
     if (existing && existing.reason === r) return; // unchanged
@@ -163,22 +195,30 @@ export function setFlagged(qid, flagged, reason = "") {
 // The record holds a `streak` of consecutive correct answers (see recordAnswer);
 // presence of the record means "needs practice".
 export function isFocused(qid) {
-  return !!state.focus[qid];
+  return isLive(state.focus[qid]);
 }
 
 export function setFocus(qid, focused) {
   if (focused) {
-    if (state.focus[qid]) return; // already marked — keep its streak
+    if (isLive(state.focus[qid])) return; // already marked — keep its streak
     state.focus[qid] = { streak: 0, updatedAt: now() };
   } else {
-    if (!state.focus[qid]) return;
-    delete state.focus[qid];
+    if (!isLive(state.focus[qid])) return;
+    state.focus[qid] = tombstone();
   }
   write();
 }
 
 export function focusCount() {
-  return Object.keys(state.focus).length;
+  return Object.keys(state.focus).filter((id) => isLive(state.focus[id])).length;
+}
+
+// Clear every needs-practice mark at once. Returns how many were cleared.
+export function clearAllFocus() {
+  const live = Object.keys(state.focus).filter((id) => isLive(state.focus[id]));
+  for (const id of live) state.focus[id] = tombstone();
+  if (live.length) write();
+  return live.length;
 }
 
 export function addHistory(entry) {

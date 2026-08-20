@@ -415,6 +415,93 @@ await check("smart mode stays staleness-blind so its targeting cannot flatten", 
   assert.equal(n(staleStats), QUESTIONS.length - sub.length);
 });
 
+
+// --- deletions must survive a cloud merge -----------------------------------
+// Regression: clearing a record used to `delete` it, and an absence carries no
+// timestamp, so mergeStates always kept the peer's surviving copy. Any device
+// still holding the old marks silently resurrected all of them.
+await check("clearing a needs-practice mark survives a merge with a stale peer", async () => {
+  const store = await import("../docs/js/store.js");
+  const ids = QUESTIONS.slice(0, 84).map((q) => q.id);
+  store.resetAll();
+  for (const id of ids) store.setFocus(id, true);
+  const stalePeer = JSON.parse(JSON.stringify(store.getState()));   // phone: 84 marks
+  assert.equal(store.focusCount(), 84);
+
+  for (const id of ids) store.setFocus(id, false);                  // cleared here
+  assert.equal(store.focusCount(), 0);
+
+  const merged = store.mergeStates(store.getState(), stalePeer);
+  const live = Object.keys(merged.focus).filter((id) => store.isLive(merged.focus[id]));
+  assert.equal(live.length, 0, "the clearing must win — it is newer than the peer's marks");
+  store.resetAll();
+});
+
+await check("the 3-in-a-row auto-clear also survives a merge", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  store.setFocus(qid, true);
+  const stalePeer = JSON.parse(JSON.stringify(store.getState()));
+  store.recordAnswer(qid, true);
+  store.recordAnswer(qid, true);
+  store.recordAnswer(qid, true);                                    // streak clears it
+  assert.equal(store.isFocused(qid), false);
+  const merged = store.mergeStates(store.getState(), stalePeer);
+  assert.equal(store.isLive(merged.focus[qid]), false, "a mastered question must not come back");
+  store.resetAll();
+});
+
+await check("deleted notes and withdrawn flags also stay deleted across a merge", async () => {
+  const store = await import("../docs/js/store.js");
+  const [a, b] = QUESTIONS.slice(0, 2).map((q) => q.id);
+  store.resetAll();
+  store.setNote(a, "my note");
+  store.setFlagged(b, true, "looks wrong");
+  const stalePeer = JSON.parse(JSON.stringify(store.getState()));
+  store.setNote(a, "");
+  store.setFlagged(b, false);
+  const merged = store.mergeStates(store.getState(), stalePeer);
+  assert.equal(store.isLive(merged.notes[a]), false, "deleted note must not resurrect");
+  assert.equal(store.isLive(merged.flags[b]), false, "withdrawn flag must not resurrect");
+  assert.equal(store.getNote(a), "");
+  assert.equal(store.getFlag(b), null);
+  assert.deepEqual(store.noteIds(), [], "tombstones are never listed");
+  assert.deepEqual(store.flagIds(), []);
+  store.resetAll();
+});
+
+await check("re-marking after a clear wins, and clearing again re-wins", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  store.setFocus(qid, true);
+  store.setFocus(qid, false);
+  const cleared = JSON.parse(JSON.stringify(store.getState()));
+  store.setFocus(qid, true);                                        // marked again, newer
+  assert.equal(store.isFocused(qid), true);
+  const merged = store.mergeStates(cleared, store.getState());
+  assert.equal(store.isLive(merged.focus[qid]), true, "the newer mark wins over the older tombstone");
+  store.resetAll();
+});
+
+await check("clearAllFocus empties the list and the pure modules agree", async () => {
+  const store = await import("../docs/js/store.js");
+  const ids = QUESTIONS.slice(0, 12).map((q) => q.id);
+  store.resetAll();
+  for (const id of ids) store.setFocus(id, true);
+  assert.equal(eligible(QUESTIONS, { mode: "focus", focus: store.getState().focus }).length, 12,
+    "quiz.js must see the live marks");
+  assert.equal(store.clearAllFocus(), 12);
+  assert.equal(store.focusCount(), 0);
+  const focus = store.getState().focus;
+  assert.equal(eligible(QUESTIONS, { mode: "focus", focus }).length, 0,
+    "quiz.js must treat a cleared record as absent, not as a mark");
+  const o = computeReadiness(QUESTIONS, {}, focus, NOW).overall;
+  assert.equal(o.pending, 0, "readiness.js must not count tombstones as pending");
+  store.resetAll();
+});
+
 // --- store merge (needs the in-memory storage fallback) ---------------------
 await check("mergeStates resolves notes and stats by last-write-wins", async () => {
   const store = await import("../docs/js/store.js");
