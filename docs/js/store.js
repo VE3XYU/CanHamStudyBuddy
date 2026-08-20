@@ -125,6 +125,12 @@ export function recordAnswer(qid, isCorrect, guessed = false) {
     attempts: cur.attempts + 1,
     correct: cur.correct + (isCorrect ? 1 : 0),
     lastResult: isCorrect ? "correct" : "incorrect",
+    // Like lastResult, `guessed` describes the LATEST attempt only: the record
+    // is rebuilt on every write, so one un-guessed correct answer clears it.
+    // readiness.questionStatus treats a guessed correct answer as "pending",
+    // not mastered. Never carry it forward from `cur` — that would pin a
+    // question as pending forever after a single guess.
+    guessed: !!guessed,
     lastSeenAt: now(),
   };
   // A "needs practice" question tracks a streak of consecutive correct answers.
@@ -234,6 +240,28 @@ export function resetAll() {
   write();
 }
 
+// After a merge, ratchet the local clock past every timestamp the merged
+// state carries. Without this a peer with a fast clock stamps its records in
+// the future, and any local write made inside that skew window — including
+// the tombstone that clears a record the peer sent — carries an older
+// `updatedAt` and loses the next last-write-wins merge, silently resurrecting
+// the cleared record. Capped a day ahead of the wall clock (matching
+// readiness.js's SKEW_GRACE_MS) so one pathologically future-stamped record
+// cannot drag every later local write out of the grace window and make fresh
+// answers read as maximally old.
+const RATCHET_CAP_MS = 24 * 60 * 60 * 1000;
+function ratchetClock(s) {
+  let seen = 0;
+  for (const map of [s.stats, s.notes, s.flags, s.focus]) {
+    for (const id of Object.keys(map)) {
+      const rec = map[id];
+      const t = Math.max(Number(rec && rec.updatedAt) || 0, Number(rec && rec.lastSeenAt) || 0);
+      if (t > seen) seen = t;
+    }
+  }
+  lastStamp = Math.max(lastStamp, Math.min(seen, Date.now() + RATCHET_CAP_MS));
+}
+
 // Merge a remote snapshot (from the cloud) into local state. Returns true if
 // local state actually changed. Uses last-write-wins per record.
 export function mergeRemote(remote) {
@@ -241,6 +269,7 @@ export function mergeRemote(remote) {
   // correctly seen as "no change" and avoids a needless notify + cloud write.
   const before = stableStringify(state);
   state = mergeStates(state, normalize(remote));
+  ratchetClock(state);
   const changed = stableStringify(state) !== before;
   // Persist without bumping the clock (the merge already reconciled times).
   write({ bumpClock: false, notify: changed });

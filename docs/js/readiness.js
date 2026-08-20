@@ -9,10 +9,13 @@
 //
 // Mastery is judged per unique bank question from the LATEST result only, so
 // re-answering the same question never inflates (or deflates) the score:
-//   - mastered: latest answer correct and not on the needs-practice list;
-//   - pending:  latest answer correct but still on the needs-practice list —
-//     e.g. a lucky guess ("I have no idea" was ticked), which store.js only
-//     clears after FOCUS_CLEAR_STREAK un-guessed correct answers in a row.
+//   - mastered: latest answer correct, not flagged as a guess, and not on the
+//     needs-practice list;
+//   - pending:  latest answer correct but not yet trusted — either the attempt
+//     was flagged "I'm just guessing" (one later un-guessed correct answer
+//     clears it, since stats records describe the latest attempt), or the
+//     question is on the needs-practice list, which store.js only clears
+//     after FOCUS_CLEAR_STREAK un-guessed correct answers in a row.
 //     Pending counts as answered but not yet mastered;
 //   - missed:   latest answer incorrect;
 //   - unseen:   never answered.
@@ -73,11 +76,14 @@ export function isFocusMark(rec) {
 }
 
 // Status of one bank question given its stats record and needs-practice mark.
-// Intentionally staleness-blind — see the note above.
+// Intentionally staleness-blind — see the note above. A correct answer only
+// counts as mastered when the user neither flagged the attempt as a guess
+// (stat.guessed; absent on records from before the field existed, which
+// correctly reads as not guessed) nor has the question focus-marked.
 export function questionStatus(stat, focused) {
   if (!stat || !stat.attempts) return "unseen";
   if (stat.lastResult !== "correct") return "missed";
-  return focused ? "pending" : "mastered";
+  return focused || stat.guessed ? "pending" : "mastered";
 }
 
 // Study priority: rank rows by how much exam weight is still recoverable —
