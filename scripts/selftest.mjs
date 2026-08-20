@@ -300,7 +300,8 @@ await check("mastery credit decays in tiers and never reaches zero for age alone
   assert.equal(masteryCredit(okAt(ago(MASTERY_FRESH_DAYS)), NOW), STALE_CREDIT, "at the boundary");
   assert.equal(masteryCredit(okAt(ago(3 * MASTERY_FRESH_DAYS)), NOW), COLD_CREDIT);
   assert.equal(masteryCredit(okAt(ago(9999)), NOW), COLD_CREDIT);
-  assert.ok(COLD_CREDIT > 0, "a 4-option question still returns 0.25 in expectation — never credit 0 for age");
+  assert.ok(COLD_CREDIT >= 0.25, "must stay at or above the 4-option guess floor — never credit 0 for age");
+  assert.ok(STALE_CREDIT >= COLD_CREDIT, "credit must decrease monotonically with age");
 });
 
 await check("unusable and future timestamps are handled, never silently fresh", () => {
@@ -309,8 +310,11 @@ await check("unusable and future timestamps are handled, never silently fresh", 
       masteryCredit({ attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: bad }, NOW),
       COLD_CREDIT, `lastSeenAt=${String(bad)} must not read as fresh`);
   }
-  assert.equal(masteryCredit(okAt(NOW + 5 * DAY), NOW), 1, "clock skew from a synced device is not stale");
-  assert.equal(answerAge(okAt(NOW + 5 * DAY), NOW), 0);
+  const HOUR = 60 * 60 * 1000;
+  assert.equal(masteryCredit(okAt(NOW + HOUR), NOW), 1, "ordinary clock drift is tolerated as fresh");
+  assert.equal(answerAge(okAt(NOW + HOUR), NOW), 0);
+  assert.equal(masteryCredit(okAt(NOW + 5 * DAY), NOW), COLD_CREDIT,
+    "a badly-set clock must not pin a question as permanently fresh — stats merge by newest lastSeenAt");
 });
 
 await check("staleness never touches accuracy, mastery counts, or question status", () => {
@@ -327,22 +331,28 @@ await check("staleness never touches accuracy, mastery counts, or question statu
 await check("the freshness projection decays while the headline holds", () => {
   const at = (d) => computeReadiness(QUESTIONS, stamp(QUESTIONS, ago(d)), {}, NOW).overall;
   near(at(1).freshReadiness, 1, "all fresh: today equals readiness");
-  near(at(20).freshReadiness, STALE_CREDIT);
-  near(at(90).freshReadiness, COLD_CREDIT);
-  for (const d of [1, 20, 90]) {
+  near(at(MASTERY_FRESH_DAYS + 6).freshReadiness, STALE_CREDIT);
+  near(at(3 * MASTERY_FRESH_DAYS + 27).freshReadiness, COLD_CREDIT);
+  for (const d of [1, MASTERY_FRESH_DAYS + 6, 3 * MASTERY_FRESH_DAYS + 27]) {
     assert.ok(at(d).freshReadiness <= at(d).readiness + 1e-9, "today never exceeds the headline");
   }
 });
 
 await check("stale counts roll up exactly and stay an overlay on mastered", () => {
   const mixed = {};
-  QUESTIONS.forEach((q, i) => { mixed[q.id] = okAt(i % 2 ? ago(1) : ago(30)); });
+  QUESTIONS.forEach((q, i) => { mixed[q.id] = okAt(i % 2 ? ago(1) : ago(MASTERY_FRESH_DAYS + 9)); });
   const r = computeReadiness(QUESTIONS, mixed, {}, NOW);
   assert.equal(r.subsections.reduce((n, s) => n + s.stale, 0), r.overall.stale);
   assert.equal(r.sections.reduce((n, s) => n + s.stale, 0), r.overall.stale);
   for (const row of [...r.subsections, ...r.sections, r.overall]) {
     assert.ok(Number.isFinite(row.stale) && Number.isFinite(row.credited), "counters numeric everywhere");
     assert.ok(row.stale <= row.mastered, "stale is a subset of mastered, never larger");
+  }
+  near(r.subsections.reduce((n, s) => n + s.credited, 0), r.overall.credited, "credited rolls up");
+  near(r.subsections.reduce((n, s) => n + s.freshEarned, 0), r.overall.freshReadiness, "freshEarned decomposes today");
+  near(r.sections.reduce((n, s) => n + s.freshEarned, 0), r.overall.freshReadiness, "…at section level too");
+  for (const row of r.subsections) {
+    near(row.freshConservative, row.total ? row.credited / row.total : 0, `${row.code} freshConservative`);
   }
   const empty = computeReadiness(QUESTIONS, {}, {}, NOW).overall;
   assert.equal(empty.stale, 0);
@@ -363,7 +373,7 @@ await check("every mode in MODES is actually implemented by eligible()", () => {
   const stats = {};
   QUESTIONS.forEach((q, i) => {
     if (i % 4 === 1) stats[q.id] = okAt(ago(1));
-    else if (i % 4 === 2) stats[q.id] = okAt(ago(30));
+    else if (i % 4 === 2) stats[q.id] = okAt(ago(MASTERY_FRESH_DAYS + 9));
     else if (i % 4 === 3) stats[q.id] = badAt(ago(1));
   });
   const focus = { [QUESTIONS[1].id]: { streak: 0, updatedAt: 1 } };
@@ -379,7 +389,7 @@ await check("every mode in MODES is actually implemented by eligible()", () => {
 
 await check("the Refresh button's count matches the quiz it starts", () => {
   const stats = {};
-  QUESTIONS.forEach((q, i) => { stats[q.id] = okAt(i % 3 ? ago(2) : ago(40)); });
+  QUESTIONS.forEach((q, i) => { stats[q.id] = okAt(i % 3 ? ago(2) : ago(MASTERY_FRESH_DAYS + 19)); });
   const o = computeReadiness(QUESTIONS, stats, {}, NOW).overall;
   assert.ok(o.stale > 0);
   assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: NOW }).length, o.stale,
@@ -387,10 +397,10 @@ await check("the Refresh button's count matches the quiz it starts", () => {
 });
 
 await check("now is threaded through eligible(), never taken from the wall clock", () => {
-  const stats = stamp(QUESTIONS, ago(20));
+  const stats = stamp(QUESTIONS, ago(MASTERY_FRESH_DAYS + 6));
   assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: NOW }).length, QUESTIONS.length,
-    "20 days old as of NOW");
-  assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: ago(20) + DAY }).length, 0,
+    "past the window as of NOW");
+  assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: ago(MASTERY_FRESH_DAYS + 6) + DAY }).length, 0,
     "…and fresh when evaluated the day after it was answered");
 });
 

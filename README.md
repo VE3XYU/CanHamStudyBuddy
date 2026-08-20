@@ -16,7 +16,9 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
 - **Mastery goes stale.** A question you got right weeks ago still counts toward your
   accuracy, but your *today* projection weighs it at less than full strength until you
   see it again — so the score reflects what you'd sit the exam with now, not your best-ever
-  day. A "Refresh older answers" queue brings the oldest ones back, oldest first.
+  day. A "Refresh older material" queue brings older answers back, the coldest ones
+  most often — though while you still have unseen questions, *Smartest gains* is the
+  better use of the time, and the app says so.
 - **"I have no idea" tick** on any question — check it *before* answering to flag
   a guess, so a lucky correct answer doesn't count. Marked questions come up more
   often (a dedicated *Needs practice* mode plus weighted rotation), and a mark

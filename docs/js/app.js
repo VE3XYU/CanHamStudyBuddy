@@ -152,6 +152,10 @@ function renderDashboard() {
   const { stats, focus, history } = store.getState();
   const r = computeReadiness(QUESTIONS, stats, focus);
   const nFocus = store.focusCount();
+  // Refreshing restores the "today" projection but cannot raise readiness,
+  // conservative or recoverable — only new and missed material can. So it only
+  // earns the primary button once there is almost nothing left to gain.
+  const refreshFirst = r.overall.recoverable < 0.10;
 
   const sectionCards = r.sections.map((s) => `
     <div class="section-row">
@@ -190,11 +194,12 @@ function renderDashboard() {
       <button class="btn btn-primary btn-block" data-action="study-focus">Practice ${nFocus === 1 ? "it" : "them"}</button>
     </div>` : "";
 
-  const due = r.overall.stale ? `
+  const nDue = r.overall.stale;
+  const due = nDue ? `
     <div class="card">
       <div class="card-title">Due for review</div>
-      <p class="muted small">${r.overall.stale} answer${r.overall.stale === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago. They still count toward your accuracy, but today's projection weighs them at less than full strength until you see them again.</p>
-      ${refreshButton(r.overall.stale, true)}
+      <p class="muted small">${nDue} answer${nDue === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago. ${nDue === 1 ? "It still counts" : "They still count"} toward your accuracy, but your projection for today (${fmtPct(r.overall.freshReadiness)}) weighs ${nDue === 1 ? "it" : "them"} at less than full strength until you see ${nDue === 1 ? "it" : "them"} again.</p>
+      ${refreshButton(nDue, refreshFirst)}
     </div>` : "";
 
   return `
@@ -219,8 +224,8 @@ function renderDashboard() {
         <button class="btn btn-primary btn-block" data-action="study" data-section="all">Start studying</button>
       </div>
       ${recent}
-      ${due}
       ${practice}
+      ${due}
       <h2 class="section-title">Study by section</h2>
       <div class="stack">${sectionCards}</div>
     </section>`;
@@ -249,7 +254,7 @@ function renderSetup() {
 
   const none = pool === 0;
   const hint = none
-    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : mode === "smart" ? " — nothing left to gain here, it’s all mastered!" : mode === "stale" ? " — nothing has aged out yet, everything you’ve mastered is still fresh." : "."}</p>`
+    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : mode === "smart" ? " — nothing left to gain here, it’s all mastered!" : mode === "stale" ? " — nothing you’ve mastered has aged out yet." : "."}</p>`
     : `<p class="muted small">${pool} question${pool === 1 ? "" : "s"} available with these filters.</p>`;
 
   return `
@@ -478,10 +483,10 @@ function renderStats() {
           <div class="stat"><div class="stat-num">${o.attempts}</div><div class="stat-label">Answers logged</div></div>
         </div>
         <p class="muted small">Accuracy counts each question once, by its latest answer. The conservative score also treats every unanswered question as not yet mastered; “to gain” is the exam weight still open to study.</p>
-        ${o.stale ? `<p class="muted small">♻ ${o.stale} answer${o.stale === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago count at reduced strength, so your projection <strong>today</strong> is ${fmtPct(o.freshReadiness)} against ${fmtPct(o.readiness)} if every answer were fresh. Refreshing them restores full credit — it does not change your accuracy.</p>` : ""}
+        ${o.stale ? `<p class="muted small">♻ ${o.stale} answer${o.stale === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago ${o.stale === 1 ? "counts" : "count"} at reduced strength, so your projection <strong>today</strong> is ${fmtW(o.freshReadiness)} against ${fmtW(o.readiness)} if every answer were fresh. Ageing alone never changes your accuracy — only a wrong answer does. Get ${o.stale === 1 ? "it" : "them"} right again and full credit is restored.</p>` : ""}
         ${pendingNote}
-        ${o.stale ? refreshButton(o.stale, true) : ""}
-        ${o.recoverable > 0 ? `<button class="btn ${o.stale ? "" : "btn-primary "}btn-block" data-action="study-smart">Study the smartest gains</button>` : ""}
+        ${o.recoverable > 0 ? `<button class="btn ${o.stale && o.recoverable < 0.10 ? "" : "btn-primary "}btn-block" data-action="study-smart">Study the smartest gains</button>` : ""}
+        ${o.stale ? refreshButton(o.stale, o.recoverable < 0.10) : ""}
       </div>
 
       <h2 class="section-title">Sections</h2>

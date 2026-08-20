@@ -31,23 +31,27 @@ export function subsectionCode(section, sub) {
 // questionStatus: it is a claim about recency, not about whether the answer was
 // correct, so it must never touch `mastered` (which feeds the backward-looking
 // "Accuracy" figure) — see computeReadiness.
-export const MASTERY_FRESH_DAYS = 14;
-export const STALE_CREDIT = 0.5;  // past the window
-export const COLD_CREDIT = 0.25;  // past 3x the window: the 4-option guess floor
+export const MASTERY_FRESH_DAYS = 21;
+export const STALE_CREDIT = 0.8;  // past the window
+export const COLD_CREDIT = 0.6;   // past 3x the window
 const DAY_MS = 24 * 60 * 60 * 1000;
+// A future timestamp is normally harmless drift, but stats merge by newest
+// lastSeenAt, so a device with a badly-set clock would otherwise win every
+// merge AND read as "answered today" forever — never ageing, never refreshable.
+const SKEW_GRACE_MS = DAY_MS;
 
 // Age of a stats record in ms. An unusable timestamp (missing, zero, NaN, or a
 // non-numeric string) counts as maximally old rather than silently fresh; a
 // future one (clock skew on another synced device) counts as brand new.
 export function answerAge(stat, now) {
   const seen = Number(stat && stat.lastSeenAt);
-  if (!Number.isFinite(seen) || seen <= 0) return Infinity;
+  if (!Number.isFinite(seen) || seen <= 0 || seen > now + SKEW_GRACE_MS) return Infinity;
   return Math.max(0, now - seen);
 }
 
 // How much a mastered question still contributes to the forward-looking score.
-// Never zero for age alone: these are 4-option questions, so even a completely
-// forgotten one returns 0.25 in expectation. Only a wrong answer scores 0.
+// Always well above 0.25 — a 4-option question returns that much by guessing
+// alone — and never 0: only a wrong answer, which is positive evidence, scores 0.
 export function masteryCredit(stat, now = Date.now()) {
   const age = answerAge(stat, now);
   const fresh = MASTERY_FRESH_DAYS * DAY_MS;

@@ -109,15 +109,20 @@ confirms it. It reports accuracy and coverage separately, an equally weighted
 overall readiness, a conservative score that counts unanswered questions as not
 yet mastered, and per-row recoverable exam weight with study priorities
 (subsection topic labels live in `data/subsections.js`). **Freshness:** a correct
-answer counts fully for `MASTERY_FRESH_DAYS` (14), then at `STALE_CREDIT` (0.5),
-then at `COLD_CREDIT` (0.25) past 3× the window — never 0, since a 4-option
-question still returns 0.25 by guessing. Staleness is an *overlay* on `mastered`,
+answer counts fully for `MASTERY_FRESH_DAYS` (21), then at `STALE_CREDIT` (0.8),
+then at `COLD_CREDIT` (0.6) past 3× the window — always above the 0.25 a 4-option
+question returns by guessing, and never 0 (only a wrong answer scores 0). Staleness is an *overlay* on `mastered`,
 never a sibling status: it must not touch `questionStatus`, `masteryRate`
 ("Accuracy" in the UI), `score`, `conservative` or `recoverable`, all of which
 keep their exact meanings. It feeds only the additive `freshScore` /
 `freshReadiness` figures (shown as "today") and the `stale` counters. Timestamps
 are defensive: missing/NaN/zero counts as maximally old, a future one (clock skew
-from a synced device) as brand new. `computeReadiness(..., now)` takes the clock
+from a synced device) as brand new, but only within a day's grace, so a device
+with a badly-set clock cannot pin a question as permanently fresh. Note that
+refreshing a stale answer can only restore `freshReadiness` — it never raises
+`readiness`/`conservative`/`recoverable`, and lowers them if the retest is wrong
+— so the UI gives the refresh queue the primary button only when `recoverable`
+is under 10%. `computeReadiness(..., now)` takes the clock
 as an argument so tests are deterministic. Both take data as
 arguments and import no DOM/store — keep them that way.
 
