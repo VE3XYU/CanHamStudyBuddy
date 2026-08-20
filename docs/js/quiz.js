@@ -3,7 +3,7 @@
 // answer-option order. The app layer drives progression and records results.
 
 import { shuffle } from "./util.js";
-import { questionStatus, subsectionCode, isStale, masteryCredit } from "./readiness.js";
+import { questionStatus, subsectionCode, isStale, masteryCredit, isFocusMark } from "./readiness.js";
 
 export const MODES = {
   all: "All questions",
@@ -29,7 +29,7 @@ export function eligible(questions, { section = "all", mode = "all", stats = {},
   } else if (mode === "incorrect") {
     pool = pool.filter((q) => stats[q.id] && stats[q.id].lastResult === "incorrect");
   } else if (mode === "focus") {
-    pool = pool.filter((q) => focus[q.id]);
+    pool = pool.filter((q) => isFocusMark(focus[q.id]));
   } else if (mode === "smart") {
     // Smartest gains: only questions that don't yet count as mastered — the
     // ones where exam marks are still on the table. Deliberately staleness-
@@ -37,12 +37,12 @@ export function eligible(questions, { section = "all", mode = "all", stats = {},
     // here would flatten the between-subsection weighting that makes this mode
     // work, and would crowd out never-seen material. Refreshing old answers is
     // the separate "stale" mode below.
-    pool = pool.filter((q) => questionStatus(stats[q.id], !!focus[q.id]) !== "mastered");
+    pool = pool.filter((q) => questionStatus(stats[q.id], isFocusMark(focus[q.id])) !== "mastered");
   } else if (mode === "stale") {
     // Refresh older material: mastered answers that have aged past the fresh
     // window, oldest weighted heaviest.
     pool = pool.filter((q) =>
-      questionStatus(stats[q.id], !!focus[q.id]) === "mastered" && isStale(stats[q.id], now));
+      questionStatus(stats[q.id], isFocusMark(focus[q.id])) === "mastered" && isStale(stats[q.id], now));
   }
   return pool;
 }
@@ -71,13 +71,13 @@ function smartWeightOf(questions, stats, focus) {
   for (const q of questions) {
     const code = subsectionCode(q.section, q.sub);
     total.set(code, (total.get(code) || 0) + 1);
-    if (questionStatus(stats[q.id], !!focus[q.id]) === "mastered")
+    if (questionStatus(stats[q.id], isFocusMark(focus[q.id])) === "mastered")
       mastered.set(code, (mastered.get(code) || 0) + 1);
   }
   return (q) => {
     const code = subsectionCode(q.section, q.sub);
     const open = 1 - (mastered.get(code) || 0) / (total.get(code) || 1);
-    return open * (focus[q.id] ? FOCUS_WEIGHT : 1);
+    return open * (isFocusMark(focus[q.id]) ? FOCUS_WEIGHT : 1);
   };
 }
 
@@ -102,7 +102,7 @@ export function buildQuiz(questions, { section = "all", mode = "all", length = 0
       // long-cold question (0.25) twice as often as a merely stale one (0.5).
       : mode === "stale"
         ? (q) => 1 / masteryCredit(stats[q.id], now)
-        : (q) => (focus[q.id] ? FOCUS_WEIGHT : 1);
+        : (q) => (isFocusMark(focus[q.id]) ? FOCUS_WEIGHT : 1);
   let chosen = weightedOrder(pool, weightOf);
   if (length && length > 0) chosen = chosen.slice(0, length);
   return {

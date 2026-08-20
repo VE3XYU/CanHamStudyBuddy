@@ -65,6 +65,13 @@ export function isStale(stat, now = Date.now()) {
   return masteryCredit(stat, now) < 1;
 }
 
+// A needs-practice mark counts only while it is live: clearing one writes a
+// `cleared` tombstone (see store.js) rather than deleting it, so that the
+// clearing survives a cloud merge. Every reader of a focus map must use this.
+export function isFocusMark(rec) {
+  return !!rec && !rec.cleared;
+}
+
 // Status of one bank question given its stats record and needs-practice mark.
 // Intentionally staleness-blind — see the note above.
 export function questionStatus(stat, focused) {
@@ -98,7 +105,7 @@ export function computeReadiness(questions, stats, focus = {}, now = Date.now())
     }
     m.total += 1;
     const s = stats[q.id];
-    const status = questionStatus(s, !!focus[q.id]);
+    const status = questionStatus(s, isFocusMark(focus[q.id]));
     if (status !== "unseen") {
       m.answered += 1;
       m.attempts += s.attempts;

@@ -69,7 +69,15 @@ it), and `history`, persisted to localStorage under
 `canham_adv_state_v1`. All writes
 go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
 reconcile local and cloud copies with **last-write-wins per record** (by
-`lastSeenAt` / `updatedAt`); history is unioned by id. Flags are local-first
+`lastSeenAt` / `updatedAt`); history is unioned by id. **Deletions are
+tombstones, never real deletes** — clearing a note/flag/focus mark writes
+`{ cleared: true, updatedAt }` and every reader (`isLive`, `noteIds`, `flagIds`,
+`focusCount`, and `readiness.js`'s `isFocusMark`, which `quiz.js` also uses)
+treats a cleared record as absent. An outright delete cannot survive sync: an
+absence carries no timestamp, so `mergeStates` always kept the peer's surviving
+copy and any device holding the old record resurrected it everywhere. The
+store's `now()` is monotonic for the same reason — two writes in one millisecond
+would otherwise tie and resolve arbitrarily. Flags are local-first
 like notes and ride the user's own optional cloud sync; additionally, when
 signed in, they're mirrored to a central `explanation_flags` collection for the
 maintainer to review (see `cloud.js` / `SETUP.md`).
