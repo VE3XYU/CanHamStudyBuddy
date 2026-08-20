@@ -4,9 +4,9 @@ import assert from "node:assert/strict";
 
 import { QUESTIONS } from "../docs/js/data/questions.js";
 import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "../docs/js/data/explanations.js";
-import { buildQuiz, eligible, buildFromQuestions, MODES } from "../docs/js/quiz.js";
+import { buildQuiz, eligible, buildFromQuestions, buildExam, MODES } from "../docs/js/quiz.js";
 import {
-  computeReadiness, subsectionCode, questionStatus,
+  computeReadiness, subsectionCode, questionStatus, isFocusMark,
   masteryCredit, answerAge, MASTERY_FRESH_DAYS, STALE_CREDIT, COLD_CREDIT,
 } from "../docs/js/readiness.js";
 import { SUBSECTION_TOPICS } from "../docs/js/data/subsections.js";
@@ -109,6 +109,22 @@ await check("buildFromQuestions wraps an explicit list", () => {
   const quiz = buildFromQuestions(list);
   assert.equal(quiz.items.length, 3);
   assert.equal(quiz.mode, "retry");
+});
+
+await check("buildExam mirrors the real draw: one question per subsection, options shuffled", () => {
+  const quiz = buildExam(QUESTIONS);
+  assert.equal(quiz.mode, "exam");
+  assert.equal(quiz.items.length, 50, "the real exam is exactly 50 questions");
+  const subs = new Set(quiz.items.map((it) => it.id.slice(0, it.id.lastIndexOf("-"))));
+  assert.equal(subs.size, 50, "every subsection contributes exactly one question");
+  for (const item of quiz.items) {
+    assert.equal(item.options.length, 4);
+    assert.equal(item.options[item.correctIndex], item.correct);
+  }
+  // Draws vary between exams (each subsection holds 10-11 questions, so two
+  // identical 50-question draws are astronomically unlikely).
+  const again = new Set(buildExam(QUESTIONS).items.map((it) => it.id));
+  assert.ok(quiz.items.some((it) => !again.has(it.id)), "two practice exams should differ");
 });
 
 await check("focus mode filters to marked questions; weighting favours them", () => {
@@ -264,10 +280,10 @@ await check("a lucky guess counts as answered but stays unmastered until confirm
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id; // in A-001-001
   store.resetAll();
-  store.setFocus(qid, true);            // "I have no idea" ticked before answering
+  store.setFocus(qid, true);            // explicitly marked for practice
   store.recordAnswer(qid, true, true);  // lucky guess: correct but flagged
   let st = store.getState();
-  assert.equal(questionStatus(st.stats[qid], !!st.focus[qid]), "pending");
+  assert.equal(questionStatus(st.stats[qid], isFocusMark(st.focus[qid])), "pending");
   let m = computeReadiness(QUESTIONS, st.stats, st.focus).subsections.find((s) => s.code === "A-001-001");
   assert.equal(m.answered, 1);
   assert.equal(m.mastered, 0, "a guessed answer is not yet mastered");
@@ -281,6 +297,37 @@ await check("a lucky guess counts as answered but stays unmastered until confirm
   assert.equal(m.mastered, 1, "confirmed per the existing focus-streak logic");
   assert.equal(m.pending, 0);
   store.resetAll();
+});
+
+await check("a guessed correct answer is pending even with no practice mark", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id; // in A-001-001
+  store.resetAll();
+  store.recordAnswer(qid, true, true);  // "I'm just guessing" ticked, got lucky
+  let st = store.getState();
+  assert.equal(store.isFocused(qid), false,
+    "a guess alone no longer joins the practice list — enrollment is explicit");
+  assert.equal(questionStatus(st.stats[qid], isFocusMark(st.focus[qid])), "pending");
+  let m = computeReadiness(QUESTIONS, st.stats, st.focus).subsections.find((s) => s.code === "A-001-001");
+  assert.equal(m.pending, 1, "a lucky guess must not read as mastery");
+  assert.equal(m.mastered, 0);
+  assert.ok(eligible(QUESTIONS, { mode: "smart", stats: st.stats, focus: st.focus }).some((q) => q.id === qid),
+    "smart mode keeps targeting it");
+
+  store.recordAnswer(qid, true);        // one un-guessed correct confirms it
+  st = store.getState();
+  assert.equal(questionStatus(st.stats[qid], isFocusMark(st.focus[qid])), "mastered");
+  store.resetAll();
+});
+
+await check("questionStatus reads the guessed flag; legacy records are unchanged", () => {
+  const rec = (extra) => ({ attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 1, ...extra });
+  assert.equal(questionStatus(rec({ guessed: true }), false), "pending");
+  assert.equal(questionStatus(rec({ guessed: false }), false), "mastered");
+  assert.equal(questionStatus(rec({}), false), "mastered",
+    "records from before the field existed read as not guessed");
+  assert.equal(questionStatus({ attempts: 1, correct: 0, lastResult: "incorrect", guessed: true, lastSeenAt: 1 }, false),
+    "missed", "guessing doesn't change a miss");
 });
 
 
@@ -415,6 +462,15 @@ await check("smart mode stays staleness-blind so its targeting cannot flatten", 
   assert.equal(n(staleStats), QUESTIONS.length - sub.length);
 });
 
+await check("guess-pending never enters the stale queue — refresh is for mastery only", () => {
+  const qid = QUESTIONS[0].id;
+  const guessedOld = { attempts: 1, correct: 1, lastResult: "correct", guessed: true, lastSeenAt: ago(400) };
+  assert.equal(eligible(QUESTIONS, { mode: "stale", stats: { [qid]: guessedOld }, now: NOW }).length, 0,
+    "a guess was never mastered, so there is nothing to refresh");
+  assert.ok(eligible(QUESTIONS, { mode: "smart", stats: { [qid]: guessedOld }, now: NOW }).some((q) => q.id === qid),
+    "…it stays in the smartest-gains pool instead");
+});
+
 
 // --- deletions must survive a cloud merge -----------------------------------
 // Regression: clearing a record used to `delete` it, and an absence carries no
@@ -525,6 +581,22 @@ await check("mergeStates resolves notes and stats by last-write-wins", async () 
   assert.equal(merged.history.length, 2, "history deduped by id");
 });
 
+await check("the guessed flag rides last-write-wins like the rest of the stat record", async () => {
+  const store = await import("../docs/js/store.js");
+  const state = (t, guessed) => ({
+    stats: { q1: { attempts: 1, correct: 1, lastResult: "correct", guessed, lastSeenAt: t } },
+    notes: {}, flags: {}, focus: {}, history: [], updatedAt: t,
+  });
+  assert.equal(questionStatus(store.mergeStates(state(100, true), state(200, false)).stats.q1, false),
+    "mastered", "a newer un-guessed answer wins over an older guess");
+  assert.equal(questionStatus(store.mergeStates(state(200, true), state(100, false)).stats.q1, false),
+    "pending", "a newer guess wins over an older un-guessed answer");
+  const legacy = { stats: { q1: { attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: 300 } },
+    notes: {}, flags: {}, focus: {}, history: [], updatedAt: 300 };
+  assert.equal(questionStatus(store.mergeStates(state(100, true), legacy).stats.q1, false),
+    "mastered", "a newer legacy record (no field) reads as not guessed");
+});
+
 await check("setFlagged stores, trims, and clears an explanation flag", async () => {
   const store = await import("../docs/js/store.js");
   const qid = QUESTIONS[0].id;
@@ -609,6 +681,29 @@ await check("mergeRemote: identical remote is a no-op, real differences are dete
   remote.notes[qid] = { text: "changed", updatedAt: Date.now() + 1000 };
   assert.equal(store.mergeRemote(remote), true, "a newer note should be detected as a change");
   assert.equal(store.getNote(qid), "changed", "the newer note should win");
+});
+
+// Deliberately last: ratcheting leaves the store's monotonic clock running
+// ahead of the wall clock for the rest of the process, which would skew any
+// later test that stamps records from Date.now().
+await check("a clear written after merging a fast-clocked peer still wins the next merge", async () => {
+  const store = await import("../docs/js/store.js");
+  const qid = QUESTIONS[0].id;
+  store.resetAll();
+  const HOUR = 60 * 60 * 1000;
+  const peer = {
+    stats: {}, notes: {}, flags: {},
+    focus: { [qid]: { streak: 0, updatedAt: Date.now() + HOUR } },  // fast clock
+    history: [], updatedAt: Date.now() + HOUR,
+  };
+  store.mergeRemote(peer);
+  assert.equal(store.isFocused(qid), true, "the peer's mark lands");
+  store.setFocus(qid, false);   // cleared here, wall clock an hour behind the peer
+  assert.equal(store.isFocused(qid), false);
+  const merged = store.mergeStates(store.getState(), peer);
+  assert.equal(store.isLive(merged.focus[qid]), false,
+    "the tombstone must outrank the fast-clocked record it clears");
+  store.resetAll();
 });
 
 console.log(`\n${passed} checks passed.`);

@@ -60,12 +60,16 @@ just don't show one), so they can be authored section by section. Every shown
 explainer carries the AI-generated disclaimer; keep it.
 
 **State (`docs/js/store.js`).** The single source of truth at runtime. Holds
-`stats` (per-question attempts/correct/lastResult), `notes`, `flags` (the user
+`stats` (per-question attempts/correct/lastResult, plus `guessed` — whether the
+*latest* attempt was flagged "I'm just guessing"; the record is rebuilt on every
+write, so one un-guessed correct answer clears it, and `questionStatus` treats a
+guessed correct answer as pending, not mastered), `notes`, `flags` (the user
 marking an AI explanation as possibly wrong, with an optional free-text reason),
-`focus` (questions the user marked "I have no idea" — they rotate more often and
-auto-clear after `FOCUS_CLEAR_STREAK` correct answers in a row that weren't
-flagged as guesses; `recordAnswer` maintains the streak and a lucky guess resets
-it), and `history`, persisted to localStorage under
+`focus` (questions the user explicitly ticked "Practice this more" after
+answering — they rotate more often and auto-clear after `FOCUS_CLEAR_STREAK`
+correct answers in a row that weren't flagged as guesses; `recordAnswer`
+maintains the streak and a lucky guess resets it; the pre-answer guess tick
+deliberately does *not* enroll), and `history`, persisted to localStorage under
 `canham_adv_state_v1`. All writes
 go through the store, which notifies subscribers. `mergeStates`/`mergeRemote`
 reconcile local and cloud copies with **last-write-wins per record** (by
@@ -103,7 +107,11 @@ It also weights `focus` ("needs practice") questions so they're drawn
 questions (via `readiness.js`’s `questionStatus`), weighted by the share of
 their subsection’s exam weight still unmastered, with the focus boost on top.
 The `stale` mode ("Refresh older material") draws mastered answers that have aged
-past the fresh window, oldest weighted heaviest. Smart mode is deliberately
+past the fresh window, oldest weighted heaviest. `buildExam` builds the
+dashboard's "Practice exam": one random question from each of the 50
+subsections, mirroring the real draw — the results view shows a pass/fail
+verdict against the 35/50 (70%) pass mark only for a *completed* 50-question
+run, so an early exit can't read as a pass. Smart mode is deliberately
 staleness-blind: staleness is spread evenly across subsections, so folding it in
 would flatten smart mode's between-subsection weighting and crowd out never-seen
 material. `readiness.js` scores exam readiness the way the
@@ -111,9 +119,10 @@ Advanced exam is marked: the exam draws one question from each of the 50
 subsections (A-SSS-BBB), so each subsection is worth 2% and section weights
 follow from their subsection counts (A-001 10%, A-002 24%, A-003 12%, A-004 8%,
 A-005 18%, A-006 10%, A-007 18%). Mastery is per unique question by *latest*
-result (repeats don't distort it); a correct answer still on the needs-practice
-list — e.g. a lucky guess — is only "pending" until the store's streak logic
-confirms it. It reports accuracy and coverage separately, an equally weighted
+result (repeats don't distort it); a correct answer is only "pending", not
+mastered, while the attempt was flagged as a guess (one un-guessed correct
+answer clears that) or the question sits on the needs-practice list (the
+store's streak logic clears that). It reports accuracy and coverage separately, an equally weighted
 overall readiness, a conservative score that counts unanswered questions as not
 yet mastered, and per-row recoverable exam weight with study priorities
 (subsection topic labels live in `data/subsections.js`). **Freshness:** a correct
@@ -185,14 +194,19 @@ Hard-won, in rough order of how much time they cost:
 
 ### Known rough edges
 
-- The pre-answer "I have no idea" tick does double duty: it flags *this attempt*
-  as a guess (so a lucky correct answer can't confer mastery) **and** permanently
-  adds the question to the needs-practice list. The second meaning fires far more
-  often than intended now that the label reads "I'm just guessing". Worth
-  separating: guesses should affect scoring, and only an explicit post-answer mark
-  should join the practice list.
-- `freshConservative` / `freshEarned` are computed and rolled up but not yet shown
-  anywhere; they are pinned by tests so they cannot drift silently.
+- `freshEarned` is computed and rolled up but not shown anywhere; it is pinned
+  by tests so it cannot drift silently. (`freshConservative` now appears in the
+  Progress view's stale note as "the conservative floor today".)
+- `resetAll` is an outright delete, so on a synced setup another signed-in
+  device can resurrect everything at its next merge (same failure class the
+  tombstones fix addressed, at whole-state scale). The reset confirm dialog
+  warns about this; a real fix needs a reset watermark that `mergeStates`
+  honours. The sign-out wipe in `cloud.js` is *intentionally* this way — the
+  cloud copy is supposed to survive there.
+- A guess-pending question (correct latest answer, `guessed: true`, no focus
+  mark) appears in smart mode and "all", but on no list of its own — if the
+  user never re-meets it honestly it sits pending indefinitely. Post-exam idea:
+  surface a "guessed, unconfirmed" count or list.
 
 ## Source data format (`amat_adv_quest_delim.txt`)
 

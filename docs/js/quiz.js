@@ -99,7 +99,8 @@ export function buildQuiz(questions, { section = "all", mode = "all", length = 0
     mode === "smart"
       ? smartWeightOf(questions, stats, focus)
       // In the refresh mode the oldest answers matter most: 1/credit draws a
-      // long-cold question (0.25) twice as often as a merely stale one (0.5).
+      // long-cold question (credit 0.6) about 1.33x as often as a merely
+      // stale one (0.8) — a mild bias; cold answers still lead every draw.
       : mode === "stale"
         ? (q) => 1 / masteryCredit(stats[q.id], now)
         : (q) => (isFocusMark(focus[q.id]) ? FOCUS_WEIGHT : 1);
@@ -111,6 +112,22 @@ export function buildQuiz(questions, { section = "all", mode = "all", length = 0
     items: chosen.map(toItem),
     startedAt: Date.now(),
   };
+}
+
+// Build a practice exam the way the real Advanced exam is drawn: one random
+// question from each of the 50 subsections, so the session mirrors the exam
+// blueprint (and the per-subsection 2% weighting readiness.js scores by)
+// exactly. Deliberately ignores stats/focus — the real exam doesn't know what
+// you've practised. Options are shuffled by toItem via buildFromQuestions.
+export function buildExam(questions) {
+  const bySub = new Map();
+  for (const q of questions) {
+    const code = subsectionCode(q.section, q.sub);
+    if (!bySub.has(code)) bySub.set(code, []);
+    bySub.get(code).push(q);
+  }
+  const picks = [...bySub.values()].map((qs) => qs[Math.floor(Math.random() * qs.length)]);
+  return buildFromQuestions(picks, { mode: "exam" });
 }
 
 // Build a session from an explicit list of question objects (e.g. "retry the

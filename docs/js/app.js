@@ -6,7 +6,7 @@ import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "./data/explanations.js";
 import { sectionLabel, sectionShortLabel, sectionCode } from "./data/sections.js";
 import * as store from "./store.js";
 import * as cloud from "./cloud.js";
-import { buildQuiz, buildFromQuestions, eligible, MODES } from "./quiz.js";
+import { buildQuiz, buildFromQuestions, buildExam, eligible, MODES } from "./quiz.js";
 import { computeReadiness, MASTERY_FRESH_DAYS } from "./readiness.js";
 import { SUBSECTION_TOPICS } from "./data/subsections.js";
 import { escapeHTML, pct } from "./util.js";
@@ -81,12 +81,23 @@ function fmtDate(ts) {
 }
 
 function sessionContext(quiz) {
+  if (quiz.mode === "exam") return "Practice exam";
   const sec =
     quiz.section === "all" ? "All sections"
     : quiz.section === "custom" ? "Review"
     : sectionLabel(quiz.section);
   const mode = MODES[quiz.mode] || (quiz.mode === "retry" ? "Retry mistakes" : "");
   return mode ? `${sec} · ${mode}` : sec;
+}
+
+// Label for a history entry (dashboard "Last session" and the Recent sessions
+// list). Practice exams carry section "custom" like retry sessions, so without
+// the mode check they'd all read "Review".
+function historyLabel(h) {
+  if (h.mode === "exam") return "Practice exam";
+  if (h.section === "all") return "All sections";
+  if (h.section === "custom") return "Review";
+  return sectionLabel(h.section);
 }
 
 function accuracyKind(p) {
@@ -156,6 +167,11 @@ function renderDashboard() {
   // conservative or recoverable — only new and missed material can. So it only
   // earns the primary button once there is almost nothing left to gain.
   const refreshFirst = r.overall.recoverable < 0.10;
+  // Exactly one study CTA is primary: smartest gains while real exam weight is
+  // open; then the refresh queue (refreshFirst, above); plain "Start studying"
+  // only when neither applies.
+  const smartFirst = r.overall.recoverable >= 0.10;
+  const startPrimary = !smartFirst && !r.overall.stale;
 
   const sectionCards = r.sections.map((s) => `
     <div class="section-row">
@@ -179,10 +195,7 @@ function renderDashboard() {
   const recent = history.length ? `
     <div class="card">
       <div class="card-title">Last session</div>
-      <p class="muted">${fmtDate(history[0].startedAt)} · ${escapeHTML(
-        history[0].section === "all" ? "All sections"
-          : history[0].section === "custom" ? "Review"
-          : sectionLabel(history[0].section))}
+      <p class="muted">${fmtDate(history[0].startedAt)} · ${escapeHTML(historyLabel(history[0]))}
         — scored <strong>${history[0].correct}/${history[0].total}</strong>
         (${pct(history[0].correct, history[0].total)}%)</p>
     </div>` : "";
@@ -190,8 +203,8 @@ function renderDashboard() {
   const practice = nFocus ? `
     <div class="card">
       <div class="card-title">Needs practice</div>
-      <p class="muted small">${nFocus} question${nFocus === 1 ? "" : "s"} you marked “I have no idea” — these come up more often, and drop off after 3 correct in a row.</p>
-      <button class="btn btn-primary btn-block" data-action="study-focus">Practice ${nFocus === 1 ? "it" : "them"}</button>
+      <p class="muted small">${nFocus} question${nFocus === 1 ? "" : "s"} you marked for extra practice — these come up more often, and drop off after 3 correct in a row.</p>
+      <button class="btn btn-block" data-action="study-focus">Practice ${nFocus === 1 ? "it" : "them"}</button>
       <button class="btn btn-sm btn-ghost" data-action="clear-focus">Clear the list</button>
     </div>` : "";
 
@@ -216,13 +229,16 @@ function renderDashboard() {
             <div class="stat-label">Accuracy</div>
           </div>
           <div class="stat">
-            <div class="stat-num">${fmtPct(r.overall.coverage)}</div>
-            <div class="stat-label">Bank seen</div>
+            <div class="stat-num">${fmtPct(r.overall.conservative)}</div>
+            <div class="stat-label">Floor</div>
           </div>
         </div>
         ${bar(r.overall.readiness * 100, accuracyKind(Math.round(r.overall.readiness * 100)))}
-        <p class="muted small">Exam-weighted: each of the 50 exam subsections counts 2% · conservative score ${fmtPct(r.overall.conservative)}</p>
-        <button class="btn btn-primary btn-block" data-action="study" data-section="all">Start studying</button>
+        <p class="muted small">Exam pass mark 70% · each of the 50 exam subsections counts 2% · the floor counts unanswered questions as not yet mastered</p>
+        ${smartFirst ? `<button class="btn btn-primary btn-block" data-action="study-smart">Study the smartest gains</button>` : ""}
+        <button class="btn ${startPrimary ? "btn-primary " : ""}btn-block" data-action="study" data-section="all">Start studying</button>
+        <button class="btn btn-block" data-action="practice-exam">Practice exam — 50 questions</button>
+        <p class="muted small">Mirrors the real draw: one question from each of the 50 subsections. Unlike the real exam, you'll see answers as you go.</p>
       </div>
       ${recent}
       ${practice}
@@ -255,7 +271,7 @@ function renderSetup() {
 
   const none = pool === 0;
   const hint = none
-    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing marked “I have no idea” yet." : mode === "smart" ? " — nothing left to gain here, it’s all mastered!" : mode === "stale" ? " — nothing you’ve mastered has aged out yet." : "."}</p>`
+    ? `<p class="empty">No questions match this filter${mode === "incorrect" ? " — you have no recorded mistakes here yet." : mode === "unseen" ? " — you've seen them all here." : mode === "focus" ? " — nothing on your practice list yet." : mode === "smart" ? " — nothing left to gain here, it’s all mastered!" : mode === "stale" ? " — nothing you’ve mastered has aged out yet." : "."}</p>`
     : `<p class="muted small">${pool} question${pool === 1 ? "" : "s"} available with these filters.</p>`;
 
   return `
@@ -301,15 +317,25 @@ function renderQuiz() {
     return `<button class="${cls}" ${attrs}>${escapeHTML(opt)}</button>`;
   }).join("");
 
-  // "I have no idea" is available before answering (so a correct answer while
-  // guessing is flagged as a lucky guess) and stays after. It's per-attempt:
-  // default unchecked each time the question appears, even if it's already on
-  // the needs-practice list — un-guessed correct answers are what clear it.
+  // Two separate self-reports (they used to be one control doing double duty —
+  // see CLAUDE.md). Before answering, "I'm just guessing" flags this attempt
+  // only: store.recordAnswer keeps `guessed` on the stat record so a lucky
+  // correct answer reads as pending, not mastered. It's per-attempt, default
+  // unchecked each time, and deliberately does NOT touch the needs-practice
+  // list. After answering, "Practice this more" is the explicit needs-practice
+  // enrollment — rendered from the store so it always shows the question's
+  // real list membership, whichever session created it.
   const guessed = !!s.guessed[s.idx];
-  const idkBox = `
+  const idkBox = answered
+    ? `
+    <label class="idk">
+      <input type="checkbox" data-focus-qid="${escapeHTML(item.id)}" ${store.isFocused(item.id) ? "checked" : ""}>
+      <span>Practice this more — comes up more often until you get it right 3 times in a row</span>
+    </label>`
+    : `
     <label class="idk">
       <input type="checkbox" data-idk-qid="${escapeHTML(item.id)}" ${guessed ? "checked" : ""}>
-      <span>I have no idea${answered ? " — practice this more" : " — I'm just guessing"}</span>
+      <span>I have no idea — I'm just guessing</span>
     </label>`;
 
   let feedback = "";
@@ -317,7 +343,7 @@ function renderQuiz() {
     const note = escapeHTML(store.getNote(item.id));
     const verdict = ans.correct
       ? (ans.guessed
-          ? `<div class="verdict ok">Correct — but you were guessing, so this stays on your practice list.</div>`
+          ? `<div class="verdict ok">Correct — but you marked it as a guess, so it won't count as mastered until you get it right without guessing. Tick “Practice this more” below to see it more often.</div>`
           : `<div class="verdict ok">Correct</div>`)
       : `<div class="verdict bad">Not quite — the correct answer is highlighted.</div>`;
     const isLast = s.idx + 1 >= total;
@@ -378,6 +404,12 @@ function renderResults() {
       <div class="card hero">
         <div class="big-score ${accuracyKind(r.accuracy)}">${r.accuracy}%</div>
         <p class="muted">You scored <strong>${r.correct}/${r.total}</strong> · ${escapeHTML(sessionContext({ section: r.section, mode: r.mode }))}</p>
+        ${r.mode !== "exam" ? "" :
+          r.total === 50
+            // Only a complete 50-question run earns a pass/fail verdict — an
+            // early exit at 12/12 must not read as "I passed a practice exam".
+            ? `<div class="verdict ${r.correct >= 35 ? "ok" : "bad"}">${r.correct >= 35 ? "Pass" : "Below the pass mark"} — the real exam requires 35/50 (70%).</div>`
+            : `<p class="muted small">Exited early — the 70% pass mark only means something over the full 50 questions.</p>`}
         <div class="row">
           ${r.missed.length ? `<button class="btn btn-primary" data-action="retry-mistakes">Retry my mistakes</button>` : ""}
           <button class="btn" data-action="new-quiz">New quiz</button>
@@ -457,13 +489,13 @@ function renderStats() {
   const o = r.overall;
 
   const pendingNote = o.pending
-    ? `<p class="muted small">⏳ ${o.pending} correct answer${o.pending === 1 ? "" : "s"} (e.g. lucky guesses) ${o.pending === 1 ? "is" : "are"} still on your needs-practice list — counted as answered, but not mastered until confirmed by 3 un-guessed correct answers in a row.</p>`
+    ? `<p class="muted small">⏳ ${o.pending} correct answer${o.pending === 1 ? "" : "s"} ${o.pending === 1 ? "is" : "are"} counted as answered but not yet mastered — either you marked the attempt as a guess (one correct answer without guessing confirms it) or the question is on your practice list (3 un-guessed correct answers in a row clear it).</p>`
     : "";
 
   const history = state.history.slice(0, 15).map((h) => `
     <div class="hist-row">
       <span>${fmtDate(h.startedAt)}</span>
-      <span class="muted">${escapeHTML(h.section === "all" ? "All" : h.section === "custom" ? "Review" : sectionLabel(h.section))}</span>
+      <span class="muted">${escapeHTML(h.mode === "exam" ? "Practice exam" : h.section === "all" ? "All" : h.section === "custom" ? "Review" : sectionLabel(h.section))}</span>
       <span class="${accuracyKind(pct(h.correct, h.total))}">${h.correct}/${h.total}</span>
     </div>`).join("");
 
@@ -484,7 +516,7 @@ function renderStats() {
           <div class="stat"><div class="stat-num">${o.attempts}</div><div class="stat-label">Answers logged</div></div>
         </div>
         <p class="muted small">Accuracy counts each question once, by its latest answer. The conservative score also treats every unanswered question as not yet mastered; “to gain” is the exam weight still open to study.</p>
-        ${o.stale ? `<p class="muted small">♻ ${o.stale} answer${o.stale === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago ${o.stale === 1 ? "counts" : "count"} at reduced strength, so your projection <strong>today</strong> is ${fmtW(o.freshReadiness)} against ${fmtW(o.readiness)} if every answer were fresh. Ageing alone never changes your accuracy — only a wrong answer does. Get ${o.stale === 1 ? "it" : "them"} right again and full credit is restored.</p>` : ""}
+        ${o.stale ? `<p class="muted small">♻ ${o.stale} answer${o.stale === 1 ? "" : "s"} you last got right more than ${MASTERY_FRESH_DAYS} days ago ${o.stale === 1 ? "counts" : "count"} at reduced strength, so your projection <strong>today</strong> is ${fmtW(o.freshReadiness)} against ${fmtW(o.readiness)} if every answer were fresh. Ageing alone never changes your accuracy — only a wrong answer does. Get ${o.stale === 1 ? "it" : "them"} right again and full credit is restored. The conservative floor today is ${fmtW(o.freshConservative)}, against ${fmtW(o.conservative)} if every answer were fresh.</p>` : ""}
         ${pendingNote}
         ${o.recoverable > 0 ? `<button class="btn ${o.stale && o.recoverable < 0.10 ? "" : "btn-primary "}btn-block" data-action="study-smart">Study the smartest gains</button>` : ""}
         ${o.stale ? refreshButton(o.stale, o.recoverable < 0.10) : ""}
@@ -716,14 +748,16 @@ function studyNotes() {
 function clearFocusList() {
   const n = store.focusCount();
   if (!n) return;
-  if (window.confirm(`Clear all ${n} “I have no idea” mark${n === 1 ? "" : "s"}? Your scores, notes and answers are untouched.`)) {
+  if (window.confirm(`Clear all ${n} practice mark${n === 1 ? "" : "s"}? Your scores, notes and answers are untouched.`)) {
     store.clearAllFocus();
     render();
   }
 }
 
 function resetProgress() {
-  if (window.confirm("Reset all progress, notes, scores, and history? This can't be undone.")) {
+  // An outright reset cannot survive a cloud merge (absences carry no
+  // timestamp — see store.js), so warn synced users rather than pretend.
+  if (window.confirm("Reset all progress, notes, scores, and history? This can't be undone. If you sync across devices, another signed-in device may bring the data back at its next sync.")) {
     store.resetAll();
     navigate("dashboard");
   }
@@ -788,6 +822,7 @@ function onClick(e) {
     case "clear-focus": clearFocusList(); break;
     case "study-smart": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "smart" } }); break;
     case "study-stale": navigate("setup", { setup: { ...appState.setup, section: "all", mode: "stale" } }); break;
+    case "practice-exam": startSession(buildExam(QUESTIONS)); break;
     case "flag-expl": flagExpl(el.dataset.qid); break;
     case "unflag-expl": unflagExpl(el.dataset.qid); break;
     case "signup": doAuth("signup"); break;
@@ -824,11 +859,17 @@ function onInput(e) {
 function onChange(e) {
   const idk = e.target.closest("input[data-idk-qid]");
   if (idk) {
-    store.setFocus(idk.dataset.idkQid, idk.checked);
-    // Remember, for this attempt, that the user said they were guessing, so a
-    // correct answer won't count as mastering the question.
+    // Pre-answer only: remember, for this attempt, that the user said they
+    // were guessing, so a correct answer won't count as mastering the
+    // question. Deliberately does NOT touch the needs-practice list —
+    // enrollment is the explicit post-answer "Practice this more" box.
     const s = appState.session;
     if (s && appState.view === "quiz") s.guessed[s.idx] = idk.checked;
+    return;
+  }
+  const foc = e.target.closest("input[data-focus-qid]");
+  if (foc) {
+    store.setFocus(foc.dataset.focusQid, foc.checked);
     return;
   }
   const sel = e.target.closest("select[data-setup]");
