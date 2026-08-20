@@ -154,6 +154,46 @@ attributes. The active quiz session lives in `appState.session`, not the store.
 - **English-only** today. The source bank is bilingual, so a French toggle is a
   natural extension — the data is already there.
 
+## Working notes
+
+Hard-won, in rough order of how much time they cost:
+
+- **Check before you diagnose.** The most expensive mistakes here came from
+  reasoning off conversation context instead of a cheap direct check. The user's
+  study data is in `localStorage` under `canham_adv_state_v1` — inspect it (the
+  `updatedAt` stamps on `focus`/`notes`/`flags` records in particular) before
+  theorising about a data bug; the timestamps usually settle it in seconds.
+- **Cloud sync is not broken.** It works, and was fixed by a Firebase console
+  config change. At least three duplicate issues have been filed against it by
+  different sessions reading stale conversation context. Verify against the app
+  and the Firestore console before filing another.
+- **The feature branch is long-lived and may carry an open PR.** Before
+  `reset --hard` or a force-push, confirm the remote tip is already merged:
+  `git merge-base --is-ancestor origin/<branch> origin/main`. If the branch's PR
+  has already merged, restart from the new `main` and open a *new* PR rather than
+  reusing merged history. Never edit a merged PR's description to describe work it
+  does not contain.
+- **The PR tooling appends a session link to the body at creation time**, even
+  when you carefully leave it out. Read the PR back after creating it and strip
+  the footer (see Workflow above).
+- **Deletions must be tombstones** (see State). Any new per-question record type
+  has to follow the same rule, or clearing it will silently resurrect from
+  whichever device missed the clear.
+- **Trust the maintainer's account of their own setup.** On both the sync
+  question and a bad state count, their model of the system was right and the
+  agent's inference was wrong.
+
+### Known rough edges
+
+- The pre-answer "I have no idea" tick does double duty: it flags *this attempt*
+  as a guess (so a lucky correct answer can't confer mastery) **and** permanently
+  adds the question to the needs-practice list. The second meaning fires far more
+  often than intended now that the label reads "I'm just guessing". Worth
+  separating: guesses should affect scoring, and only an explicit post-answer mark
+  should join the practice list.
+- `freshConservative` / `freshEarned` are computed and rolled up but not yet shown
+  anywhere; they are pinned by tests so they cannot drift silently.
+
 ## Source data format (`amat_adv_quest_delim.txt`)
 
 Documented in `readme_adv.txt`. Relevant when touching the build script:
