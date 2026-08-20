@@ -8,10 +8,15 @@ questions). Inspired by Hamtest.ca, which doesn't offer an Advanced study mode.
 
 - **Study by section** or across the whole bank.
 - **Randomized** question order *and* answer-option order on every quiz.
-- **Five modes:** all questions, only-unseen, review-my-mistakes, needs-practice, or
+- **Six modes:** all questions, only-unseen, review-my-mistakes, needs-practice,
+  refresh-older-material, or
   **smartest gains** — only questions you haven’t mastered, drawn mostly from the
   subsections with the most exam marks still open (each subsection is worth 2%,
   so it aims your studying where it pays best).
+- **Mastery goes stale.** A question you got right weeks ago still counts toward your
+  accuracy, but your *today* projection weighs it at less than full strength until you
+  see it again — so the score reflects what you'd sit the exam with now, not your best-ever
+  day. A "Refresh older answers" queue brings the oldest ones back, oldest first.
 - **"I have no idea" tick** on any question — check it *before* answering to flag
   a guess, so a lucky correct answer doesn't count. Marked questions come up more
   often (a dedicated *Needs practice* mode plus weighted rotation), and a mark

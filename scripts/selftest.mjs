@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 
 import { QUESTIONS } from "../docs/js/data/questions.js";
 import { EXPLANATIONS, EXPLANATIONS_DISCLAIMER } from "../docs/js/data/explanations.js";
-import { buildQuiz, eligible, buildFromQuestions } from "../docs/js/quiz.js";
-import { computeReadiness, subsectionCode, questionStatus } from "../docs/js/readiness.js";
+import { buildQuiz, eligible, buildFromQuestions, MODES } from "../docs/js/quiz.js";
+import {
+  computeReadiness, subsectionCode, questionStatus,
+  masteryCredit, answerAge, MASTERY_FRESH_DAYS, STALE_CREDIT, COLD_CREDIT,
+} from "../docs/js/readiness.js";
 import { SUBSECTION_TOPICS } from "../docs/js/data/subsections.js";
 import { stableStringify } from "../docs/js/util.js";
 
@@ -278,6 +281,128 @@ await check("a lucky guess counts as answered but stays unmastered until confirm
   assert.equal(m.mastered, 1, "confirmed per the existing focus-streak logic");
   assert.equal(m.pending, 0);
   store.resetAll();
+});
+
+
+// --- mastery freshness (decay) ----------------------------------------------
+// Every test below pins a fixed clock: nothing here may read the wall clock, or
+// the suite would start failing on its own N days after it was written.
+const DAY = 24 * 60 * 60 * 1000;
+const NOW = Date.UTC(2026, 7, 20, 12);
+const ago = (days) => NOW - days * DAY;
+const okAt = (t) => ({ attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: t });
+const badAt = (t) => ({ attempts: 1, correct: 0, lastResult: "incorrect", lastSeenAt: t });
+const stamp = (qs, t) => Object.fromEntries(qs.map((q) => [q.id, okAt(t)]));
+
+await check("mastery credit decays in tiers and never reaches zero for age alone", () => {
+  assert.equal(masteryCredit(okAt(ago(0)), NOW), 1);
+  assert.equal(masteryCredit(okAt(ago(MASTERY_FRESH_DAYS - 1)), NOW), 1, "inside the window");
+  assert.equal(masteryCredit(okAt(ago(MASTERY_FRESH_DAYS)), NOW), STALE_CREDIT, "at the boundary");
+  assert.equal(masteryCredit(okAt(ago(3 * MASTERY_FRESH_DAYS)), NOW), COLD_CREDIT);
+  assert.equal(masteryCredit(okAt(ago(9999)), NOW), COLD_CREDIT);
+  assert.ok(COLD_CREDIT > 0, "a 4-option question still returns 0.25 in expectation — never credit 0 for age");
+});
+
+await check("unusable and future timestamps are handled, never silently fresh", () => {
+  for (const bad of [undefined, null, 0, NaN, "nonsense"]) {
+    assert.equal(
+      masteryCredit({ attempts: 1, correct: 1, lastResult: "correct", lastSeenAt: bad }, NOW),
+      COLD_CREDIT, `lastSeenAt=${String(bad)} must not read as fresh`);
+  }
+  assert.equal(masteryCredit(okAt(NOW + 5 * DAY), NOW), 1, "clock skew from a synced device is not stale");
+  assert.equal(answerAge(okAt(NOW + 5 * DAY), NOW), 0);
+});
+
+await check("staleness never touches accuracy, mastery counts, or question status", () => {
+  const fresh = computeReadiness(QUESTIONS, stamp(QUESTIONS, ago(1)), {}, NOW).overall;
+  const old = computeReadiness(QUESTIONS, stamp(QUESTIONS, ago(400)), {}, NOW).overall;
+  assert.equal(old.mastered, fresh.mastered, "a stale answer is still a mastered answer");
+  near(old.masteryRate, 1, "accuracy records the past and must not decay");
+  near(old.readiness, fresh.readiness, "the headline keeps its definition");
+  near(old.conservative, fresh.conservative);
+  assert.equal(questionStatus(okAt(ago(400)), false), "mastered", "status stays staleness-blind");
+  assert.equal(old.stale, QUESTIONS.length, "…but every answer is flagged stale");
+});
+
+await check("the freshness projection decays while the headline holds", () => {
+  const at = (d) => computeReadiness(QUESTIONS, stamp(QUESTIONS, ago(d)), {}, NOW).overall;
+  near(at(1).freshReadiness, 1, "all fresh: today equals readiness");
+  near(at(20).freshReadiness, STALE_CREDIT);
+  near(at(90).freshReadiness, COLD_CREDIT);
+  for (const d of [1, 20, 90]) {
+    assert.ok(at(d).freshReadiness <= at(d).readiness + 1e-9, "today never exceeds the headline");
+  }
+});
+
+await check("stale counts roll up exactly and stay an overlay on mastered", () => {
+  const mixed = {};
+  QUESTIONS.forEach((q, i) => { mixed[q.id] = okAt(i % 2 ? ago(1) : ago(30)); });
+  const r = computeReadiness(QUESTIONS, mixed, {}, NOW);
+  assert.equal(r.subsections.reduce((n, s) => n + s.stale, 0), r.overall.stale);
+  assert.equal(r.sections.reduce((n, s) => n + s.stale, 0), r.overall.stale);
+  for (const row of [...r.subsections, ...r.sections, r.overall]) {
+    assert.ok(Number.isFinite(row.stale) && Number.isFinite(row.credited), "counters numeric everywhere");
+    assert.ok(row.stale <= row.mastered, "stale is a subset of mastered, never larger");
+  }
+  const empty = computeReadiness(QUESTIONS, {}, {}, NOW).overall;
+  assert.equal(empty.stale, 0);
+  near(empty.freshReadiness, 0);
+});
+
+await check("focus and a wrong answer outrank staleness", () => {
+  assert.equal(questionStatus(okAt(ago(400)), true), "pending", "an old lucky guess is pending, not stale");
+  assert.equal(questionStatus(badAt(ago(400)), false), "missed");
+  const qid = QUESTIONS[0].id;
+  const o = computeReadiness(QUESTIONS, { [qid]: okAt(ago(400)) }, { [qid]: { streak: 0, updatedAt: 1 } }, NOW).overall;
+  assert.equal(o.pending, 1);
+  assert.equal(o.mastered, 0);
+  assert.equal(o.stale, 0, "a question must never be counted in two buckets at once");
+});
+
+await check("every mode in MODES is actually implemented by eligible()", () => {
+  const stats = {};
+  QUESTIONS.forEach((q, i) => {
+    if (i % 4 === 1) stats[q.id] = okAt(ago(1));
+    else if (i % 4 === 2) stats[q.id] = okAt(ago(30));
+    else if (i % 4 === 3) stats[q.id] = badAt(ago(1));
+  });
+  const focus = { [QUESTIONS[1].id]: { streak: 0, updatedAt: 1 } };
+  const size = (mode) => eligible(QUESTIONS, { mode, stats, focus, now: NOW }).length;
+  assert.equal(size("all"), QUESTIONS.length);
+  for (const key of Object.keys(MODES)) {
+    if (key === "all") continue;
+    assert.ok(size(key) < QUESTIONS.length,
+      `mode "${key}" returned the whole bank — is it missing a branch in eligible()?`);
+    assert.ok(size(key) > 0, `mode "${key}" found nothing in a fixture that contains every state`);
+  }
+});
+
+await check("the Refresh button's count matches the quiz it starts", () => {
+  const stats = {};
+  QUESTIONS.forEach((q, i) => { stats[q.id] = okAt(i % 3 ? ago(2) : ago(40)); });
+  const o = computeReadiness(QUESTIONS, stats, {}, NOW).overall;
+  assert.ok(o.stale > 0);
+  assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: NOW }).length, o.stale,
+    "readiness.js and quiz.js must agree on what counts as stale");
+});
+
+await check("now is threaded through eligible(), never taken from the wall clock", () => {
+  const stats = stamp(QUESTIONS, ago(20));
+  assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: NOW }).length, QUESTIONS.length,
+    "20 days old as of NOW");
+  assert.equal(eligible(QUESTIONS, { mode: "stale", stats, now: ago(20) + DAY }).length, 0,
+    "…and fresh when evaluated the day after it was answered");
+});
+
+await check("smart mode stays staleness-blind so its targeting cannot flatten", () => {
+  const first = subsectionCode(QUESTIONS[0].section, QUESTIONS[0].sub);
+  const sub = QUESTIONS.filter((q) => subsectionCode(q.section, q.sub) === first);
+  const staleStats = stamp(sub, ago(400));
+  const freshStats = stamp(sub, ago(1));
+  const n = (stats) => eligible(QUESTIONS, { mode: "smart", stats, now: NOW }).length;
+  assert.equal(n(staleStats), n(freshStats),
+    "stale answers must not re-flood the smartest-gains pool and crowd out unseen material");
+  assert.equal(n(staleStats), QUESTIONS.length - sub.length);
 });
 
 // --- store merge (needs the in-memory storage fallback) ---------------------
